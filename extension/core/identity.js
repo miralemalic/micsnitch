@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: 2026 miralemalic
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 
 import GLib from 'gi://GLib';
 import Gio from 'gi://Gio';

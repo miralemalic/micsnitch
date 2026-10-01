@@ -118,4 +118,4 @@ tests/harness.sh                         # the tests, tested
 
 ## License
 
-GPL-3.0-or-later.
+MIT. See [LICENSE](LICENSE).

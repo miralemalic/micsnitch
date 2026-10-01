@@ -1,7 +1,7 @@
 -- MicSnitch: nothing records audio until you allow it.
 --
 -- SPDX-FileCopyrightText: 2026 miralemalic
--- SPDX-License-Identifier: GPL-3.0-or-later
+-- SPDX-License-Identifier: MIT
 --
 -- Audio only flows into an app from something the app doesn't own after
 -- you've said yes. Such links are held back before WirePlumber makes them,

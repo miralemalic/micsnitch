@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: 2026 miralemalic
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 
 // The last few decisions, kept in this login's runtime folder and nowhere else.
 import Gio from 'gi://Gio';
