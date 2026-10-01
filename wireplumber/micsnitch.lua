@@ -3,10 +3,11 @@
 -- SPDX-FileCopyrightText: 2026 miralemalic
 -- SPDX-License-Identifier: GPL-3.0-or-later
 --
--- Hold recording connections before WirePlumber makes them. The desktop
--- asks for consent and answers through the "micsnitch" metadata. Apps lose
--- the link-factory so they cannot wire around this policy; raced links are
--- cut too. The metadata carries live requests and recordings, never history.
+-- Audio only flows into an app from something the app doesn't own after
+-- you've said yes. Such links are held back before WirePlumber makes them,
+-- the request goes up on the "micsnitch" metadata and the popup answers
+-- there. Apps also lose the link-factory, so they can't wire things up on
+-- their own, and a link that slips through anyway is cut.
 
 lutils = require ("linking-utils")
 log = Log.open_topic ("s-micsnitch")
@@ -14,7 +15,8 @@ log = Log.open_topic ("s-micsnitch")
 VERSION = "2"
 POPUP_TIMEOUT_MS = 15000
 
--- Node ids are reused. Serials, together with mic/system, identify consent.
+-- Node ids get reused once a node is gone, so answers are kept by serial,
+-- and apart for mic and system audio.
 approved = {}
 pending = {}
 recordings = {}
@@ -31,7 +33,8 @@ nodes_om = ObjectManager { Interest { type = "node" } }
 clients_om = ObjectManager { Interest { type = "client" } }
 links_om = ObjectManager { Interest { type = "link" } }
 
--- PipeWire owns the noticeboard. An app's lookalike does not count.
+-- PipeWire keeps the metadata itself, so the popup's end of it survives a
+-- WirePlumber restart. One of the same name made by an app doesn't count.
 metadata_om = ObjectManager {
   Interest {
     type = "metadata",
@@ -63,8 +66,8 @@ function post_json (id, key, value)
   end
 end
 
--- Names can be invented. PipeWire's kernel-supplied pid identifies the
--- audio daemon and WirePlumber's own connections.
+-- Connections of the PipeWire daemon itself and of WirePlumber, told apart
+-- by pid, which the kernel vouches for. nil while that can't be told yet.
 function is_system (client)
   local pid = client.properties["pipewire.sec.pid"]
   local own_id = Core.get_own_bound_id ()
@@ -148,8 +151,8 @@ function refuse (id, node)
   node:request_destroy ()
 end
 
--- A missing popup gets 15 seconds to reconnect. On lock, the extension
--- explicitly pauses consent before removing its UI; questions wait for unlock.
+-- Nobody answers while the popup is off, so don't keep apps hanging. A
+-- locked screen is different: those requests wait for the unlock.
 function expire_later (id)
   local p = pending[id]
   if p.timeout then
@@ -191,8 +194,8 @@ function ask (to, from)
   end
 end
 
--- Including the kind prevents an old system-audio answer from authorising
--- a stream that has since moved to the microphone.
+-- Answers look like "allow 42 mic", naming the serial and kind they're for,
+-- so an old answer can't wave a stream through after it moved to the mic.
 function answer (id, value)
   local p = pending[id]
   local verdict, for_serial, kind = value:match ("^(%a+) (%d+) (%a+)$")
@@ -250,8 +253,7 @@ function set_blocked (value)
   end
 end
 
--- The marker belongs to WirePlumber's client, so PipeWire removes it if
--- WirePlumber dies. Requests still live in PipeWire through a policy restart.
+-- The marker hangs off our own client, so it goes when WirePlumber does.
 function announce ()
   if ready then
     local id = Core.get_own_bound_id ()
@@ -262,9 +264,7 @@ end
 
 metadata_om:connect ("object-added", function (_, m)
   metadata = m
-  -- Activity belongs to the desktop; remove any old shared history.
-  post (0, "micsnitch.history", nil)
-  -- A previous WirePlumber may have left rows behind. Rebuild from live links.
+  -- Recording rows left from before a restart get rebuilt from the links
   for id, key in m:iterate (-1) do
     if key == "micsnitch.recording" then
       post (id, key, nil)
@@ -307,6 +307,8 @@ nodes_om:connect ("object-removed", function (_, node)
   post (id, "micsnitch.recording", nil)
 end)
 
+-- Hold links WirePlumber is about to make. The receiving end is the stream
+-- when recording and the target when playing into an app's own sink.
 SimpleEventHook {
   name = "micsnitch/gate",
   after = { "linking/find-defined-target", "linking/find-filter-target",
@@ -326,6 +328,7 @@ SimpleEventHook {
       to, from = peer, stream
     end
     if not ready then
+      -- Who owns what isn't known yet; this gets looked at again then
       event:stop_processing ()
     elseif needs_consent (to, from) then
       if blocked or not is_approved (to, from) then
@@ -338,8 +341,8 @@ SimpleEventHook {
   end
 }:register ()
 
--- Only active links count as recording; an allowed but paused stream does
--- not. Publish one row per receiving node, rather than one per audio channel.
+-- What's recording right now: one row per stream with sound actually
+-- flowing, not one per channel.
 function update_recordings ()
   local current = {}
   for link in links_om:iterate () do
@@ -376,7 +379,8 @@ function schedule_recordings ()
   end)
 end
 
--- Cut a connection that skipped the policy, then ask about its receiver.
+-- Anything an app linked on its own, e.g. in the moment before its
+-- permissions were set.
 links_om:connect ("object-added", function (_, link)
   local p = link.properties
   local to = lookup (nodes_om, p["link.input.node"])
@@ -397,8 +401,9 @@ wiring = Interest {
 }
 
 if PermissionManager then
-  -- Newer WirePlumber shares its permission managers. Give apps their own
-  -- copy so removing the link-factory does not also lock WirePlumber out.
+  -- WirePlumber 0.5.15+. The stock permission managers are shared with
+  -- WirePlumber itself, so apps get a copy of theirs instead: same default,
+  -- minus the link-factory. Portal and snap clients keep their own rules.
   managers = {}
 
   function manager_for (client, access)
@@ -442,7 +447,8 @@ if PermissionManager then
     end
   }:register ()
 else
-  -- Older WirePlumber keeps a separate permission entry for each object.
+  -- Older WirePlumber sets an "any" default per client; a per-object entry
+  -- for the link-factory survives it.
   factories_om = ObjectManager { wiring }
 
   function unwire (client)
@@ -475,13 +481,14 @@ clients_om:connect ("object-removed", function (_, client)
   end
 end)
 
--- Learn nodes and clients first. Until then, the gate holds all app links.
+-- One after the other, so that nothing is judged before the nodes and
+-- clients it involves are known.
 nodes_om:connect ("installed", function ()
   clients_om:activate ()
 end)
 clients_om:connect ("installed", function (om)
-  -- New clients use select-access above. Here, only already classified
-  -- clients get a manager; unknown access must never become full access.
+  -- Clients that were there before us. One whose access isn't known yet is
+  -- left to the select-access hook instead of getting everything.
   for client in om:iterate () do
     unwire (client)
   end

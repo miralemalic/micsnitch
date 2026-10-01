@@ -11,5 +11,10 @@
       <default>true</default>
       <summary>Ask before apps record system audio</summary>
     </key>
+    <key name="undo" type="s">
+      <default>''</default>
+      <summary>Decision to take back</summary>
+      <description>The settings window puts a recent decision here for the popup to undo.</description>
+    </key>
   </schema>
 </schemalist>

@@ -1,7 +1,6 @@
 // SPDX-FileCopyrightText: 2026 miralemalic
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Match native apps by their real executable and Pulse apps by their claim.
 import GLib from 'gi://GLib';
 import Gio from 'gi://Gio';
 import GioUnix from 'gi://GioUnix';
@@ -53,8 +52,9 @@ function describe(key, info, name, detail, verified) {
     };
 }
 
-// Direct PipeWire clients have a kernel-checked PID. For PulseAudio clients,
-// names and PIDs are claims, so remembered rules say exactly what they trust.
+// Who is asking, as far as that can be trusted. When an app connects to
+// PipeWire itself, the kernel tells us its pid. Through pipewire-pulse all
+// we get is what the app says about itself.
 export async function identify(request, cancellable = null) {
     const {sec_pid: pid, flatpak, binary} = request;
 
@@ -64,24 +64,23 @@ export async function identify(request, cancellable = null) {
     const exe = await exeOf(pid, cancellable);
     const program = exe && GLib.path_get_basename(exe);
     if (program && program !== 'pipewire') {
-        // An executable rule also covers scripts run by that executable.
+        // Remembering goes by program, so python3 covers every script
         const app = describe(`exe:${exe}`, await appOfPid(pid, cancellable),
             request.app ?? program, exe, true);
         return {...app, program};
     }
 
-    // A claimed PID can help find a name and icon, but cannot establish
-    // identity. The app found must at least run the program it claims.
+    // A claimed pid is good for a name and an icon, nothing more, and only
+    // if that process really runs the program the app claims
     const mine = request.pid && binary &&
         (await read(`/proc/${request.pid}/comm`, cancellable)).trim() === binary.slice(0, 15);
     let launched = mine ? await appOfPid(request.pid, cancellable) : null;
     if (!launched?.get_executable()?.includes(binary))
         launched = null;
 
-    // Every Chromium-based app (Electron, Qt WebEngine) calls itself
-    // "Chromium input", so there the program name says more. Rules go by
-    // both, so apps sharing a program like electron don't share one either.
-    // A web app's own launcher tells it apart from the browser it runs in.
+    // Chromium-based apps all call themselves "Chromium input", so the
+    // program name says more. Rules go by both, and a web app by its own
+    // launcher, so apps sharing electron or a browser don't share a rule.
     const named = request.app?.startsWith('Chromium') ? null : request.app;
     const claim = flatpak ?? launched?.get_id().replace(/\.desktop$/, '') ??
         ([binary, named].filter(Boolean).join(' / ') || null);

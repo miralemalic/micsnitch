@@ -55,7 +55,7 @@ if [ "$extension" = 1 ]; then
     for cmd in pw-metadata stdbuf glib-compile-schemas; do need "$cmd"; done
     out=$(mktemp -d)
     trap 'rm -rf "${out:?}"' EXIT
-    # Catch packaging and schema errors before putting a policy in the audio stack.
+    # Build the popup first, so a broken one never gets near the audio setup
     glib-compile-schemas --strict --dry-run extension/schemas
     (cd extension && gnome-extensions pack -q --force --out-dir="$out" \
         --extra-source=core --extra-source=dialog.js .)

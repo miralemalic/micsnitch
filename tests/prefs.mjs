@@ -4,6 +4,7 @@
 import Adw from 'gi://Adw?version=1';
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
+import Gtk from 'gi://Gtk?version=4.0';
 import System from 'system';
 
 Gio.Resource.load('/usr/share/gnome-shell/org.gnome.Shell.Extensions.src.gresource')._register();
@@ -21,11 +22,17 @@ ExtensionPreferences.lookupByUUID = () => preferences;
 const window = new Adw.PreferencesWindow();
 preferences.fillPreferencesWindow(window);
 
-function print_rows(widget) {
+function* descendants(widget) {
     for (let child = widget.get_first_child(); child; child = child.get_next_sibling()) {
-        if (child instanceof Adw.ActionRow)
-            print(`${child.title} | ${child.subtitle ?? ''}`);
-        print_rows(child);
+        yield child;
+        yield* descendants(child);
     }
 }
-print_rows(window);
+
+// "title | subtitle", plus any labelled buttons like " [Undo]"
+for (const row of descendants(window)) {
+    if (!(row instanceof Adw.ActionRow))
+        continue;
+    const buttons = [...descendants(row)].filter(w => w instanceof Gtk.Button && w.label);
+    print(`${row.title} | ${row.subtitle ?? ''}${buttons.map(b => ` [${b.label}]`).join('')}`);
+}

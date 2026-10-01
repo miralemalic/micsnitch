@@ -1,7 +1,6 @@
 // SPDX-FileCopyrightText: 2026 miralemalic
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Show recording controls and ask before an app gets an audio connection.
 import Clutter from 'gi://Clutter';
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
@@ -14,28 +13,46 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 import {QuickMenuToggle, SystemIndicator} from 'resource:///org/gnome/shell/ui/quickSettings.js';
 
-import {Activity, describeEvent} from './core/activity.js';
+import {Activity, canUndo, describeEvent} from './core/activity.js';
 import {Channel} from './core/channel.js';
 import {identify} from './core/identity.js';
 import {RequestDialog} from './dialog.js';
 
 // Chromium-based apps reopen the mic several times for one click, so an
-// answer also covers the same app's requests for a little while after.
+// answer also covers the same app for a little while after
 const FOLLOW_UP_US = 30 * GLib.USEC_PER_SEC;
-// The menu shows this many recent decisions; settings shows them all
 const MENU_EVENTS = 10;
 
 function kindName(kind) {
     return kind === 'mic' ? _('Microphone') : _('System audio');
 }
 
+function menuRow(title, detail, label = null, action = null) {
+    const item = new PopupMenu.PopupBaseMenuItem({reactive: false, can_focus: false});
+    const labels = new St.BoxLayout({orientation: Clutter.Orientation.VERTICAL, x_expand: true});
+    labels.add_child(new St.Label({text: title}));
+    labels.add_child(new St.Label({text: detail, style_class: 'micsnitch-detail'}));
+    item.add_child(labels);
+    if (label) {
+        const button = new St.Button({
+            label, style_class: 'button', can_focus: true,
+            accessible_name: `${label}: ${title}`,
+        });
+        button.connect('clicked', () => {
+            button.reactive = false;
+            action();
+        });
+        item.add_child(button);
+    }
+    return item;
+}
+
 const MicToggle = GObject.registerClass(
 class MicToggle extends QuickMenuToggle {
-    _init(privacy, channel, activity, preferences) {
+    _init(extension) {
         super._init({title: _('MicSnitch'), toggleMode: true});
-        this._channel = channel;
-        this._activity = activity;
-        privacy.bind('disable-microphone', this, 'checked',
+        this._extension = extension;
+        extension._privacy.bind('disable-microphone', this, 'checked',
             Gio.SettingsBindFlags.INVERT_BOOLEAN);
         this.menu.setHeader('audio-input-microphone-symbolic', _('MicSnitch'));
 
@@ -47,19 +64,21 @@ class MicToggle extends QuickMenuToggle {
         this.menu.addMenuItem(this._recent);
         this.menu.addAction(_('Settings…'), () => {
             Main.panel.statusArea.quickSettings.menu.close();
-            preferences();
+            extension.openPreferences();
         });
 
         this.connect('notify::checked', () => this._sync());
-        channel.connectObject('notify::active', () => this._sync(),
+        extension._channel.connectObject('notify::active', () => this._sync(),
             'recordings-changed', () => this._sync(), this);
-        activity.connectObject('changed', () => this._sync(), this);
+        extension._activity.connectObject('changed', () => this._sync(), this);
         this._sync();
     }
 
     _sync() {
-        // A warning sign when the policy isn't running, so nothing is guarded
-        if (!this._channel.active)
+        const {_channel: channel, _activity: activity} = this._extension;
+
+        // Without the policy nothing is guarded, so warn
+        if (!channel.active)
             this.iconName = 'dialog-warning-symbolic';
         else if (this.checked)
             this.iconName = 'audio-input-microphone-symbolic';
@@ -67,52 +86,35 @@ class MicToggle extends QuickMenuToggle {
             this.iconName = 'microphone-disabled-symbolic';
 
         this._recordings.removeAll();
-        for (const [id, recording] of this._channel.recordings) {
-            const name = recording.app || recording.flatpak || recording.binary || _('Unnamed app');
-            const item = new PopupMenu.PopupBaseMenuItem({reactive: false, can_focus: false});
-            const labels = new St.BoxLayout({orientation: Clutter.Orientation.VERTICAL, x_expand: true});
-            labels.add_child(new St.Label({text: name}));
-            labels.add_child(new St.Label({
-                text: [kindName(recording.kind), recording.source].filter(Boolean).join(' · '),
-                style_class: 'micsnitch-detail',
-            }));
-            item.add_child(labels);
-            const stop = new St.Button({
-                label: _('Stop'), style_class: 'button', can_focus: true,
-                accessible_name: _('Stop recording for %s').format(name),
-            });
-            stop.connect('clicked', () => {
-                stop.reactive = false;
-                this._channel.stopRecording(id, recording.serial);
-            });
-            item.add_child(stop);
-            this._recordings.addMenuItem(item);
+        for (const [id, recording] of channel.recordings) {
+            this._recordings.addMenuItem(menuRow(this._extension.nameOf(recording),
+                [kindName(recording.kind), recording.source].filter(Boolean).join(' · '),
+                _('Stop'), () => channel.stopRecording(id, recording.serial)));
         }
-        if (!this._channel.recordings.size) {
+        if (!channel.recordings.size) {
             this._recordings.addMenuItem(new PopupMenu.PopupMenuItem(
-                this._channel.active ? _('No apps recording') : _('Protection unavailable'),
+                channel.active ? _('No apps recording') : _('Protection unavailable'),
                 {reactive: false}));
         }
 
         this._recent.removeAll();
-        for (const event of this._activity.events.slice(-MENU_EVENTS).reverse()) {
-            const item = new PopupMenu.PopupBaseMenuItem({reactive: false, can_focus: false});
-            const labels = new St.BoxLayout({orientation: Clutter.Orientation.VERTICAL});
-            labels.add_child(new St.Label({text: event.app || _('Unnamed app')}));
-            labels.add_child(new St.Label({text: describeEvent(event, _), style_class: 'micsnitch-detail'}));
-            item.add_child(labels);
-            this._recent.addMenuItem(item);
+        for (const event of activity.events.slice(-MENU_EVENTS).reverse()) {
+            this._recent.addMenuItem(menuRow(event.app || _('Unnamed app'),
+                describeEvent(event, _),
+                canUndo(event) ? _('Undo') : null, () => this._extension.undo(event.id)));
         }
-        if (!this._activity.events.length)
-            this._recent.addMenuItem(new PopupMenu.PopupMenuItem(_('No decisions this login'), {reactive: false}));
+        if (!activity.events.length) {
+            this._recent.addMenuItem(new PopupMenu.PopupMenuItem(
+                _('No decisions this login'), {reactive: false}));
+        }
     }
 });
 
 const Indicator = GObject.registerClass(
 class Indicator extends SystemIndicator {
-    _init(privacy, channel, activity, preferences) {
+    _init(extension) {
         super._init();
-        this.quickSettingsItems.push(new MicToggle(privacy, channel, activity, preferences));
+        this.quickSettingsItems.push(new MicToggle(extension));
     }
 });
 
@@ -122,48 +124,88 @@ export default class MicSnitchExtension extends Extension {
         this._privacy = new Gio.Settings({schema_id: 'org.gnome.desktop.privacy'});
         this._queue = new Map();
         this._lastAnswers = new Map();
+        this._names = new Map();
         this._cancellable = new Gio.Cancellable();
         this._activity = new Activity(GLib.getenv('XDG_SESSION_ID') ||
-            String(Gio.Credentials.new().get_unix_pid()));
-        // Finish the previous popup's writes before announcing readiness again.
+            String(Gio.Credentials.new().get_unix_pid()), this._pendingActivity);
+        this._pendingActivity = null;
+        // Whatever we sent before a lock has to land before we say "ready"
         this._channel = new Channel(this._pendingWrites);
         this._pendingWrites = null;
         this._channel.connectObject(
             'request', (_c, id, request) => this._onRequest(id, request),
             'withdrawn', (_c, id) => this._onWithdrawn(id),
             'stopped', (_c, recording) => this._activity.add({
-                app: recording.app, kind: recording.kind,
+                app: this.nameOf(recording), kind: recording.kind,
                 source: recording.source, action: 'stop',
             }),
             'notify::active', () => this._sync(), this);
         this._privacy.connectObject('changed::disable-microphone', () => this._sync(), this);
-        this._indicator = new Indicator(this._privacy, this._channel, this._activity,
-            () => this.openPreferences());
+        // The settings window asks for an undo here
+        this._settings.connectObject('changed::undo', () => this._undoFromSettings(), this);
+        this._indicator = new Indicator(this);
         Main.panel.statusArea.quickSettings.addExternalIndicator(this._indicator);
         this._channel.start();
     }
 
     disable() {
-        // The popup is removed on lock; requests wait until it returns.
+        // Locking switches us off; requests wait for the unlock
         this._pendingWrites = this._channel.tell('ui',
             Main.sessionMode.isLocked ? 'locked' : 'off');
         this._channel.disconnectObject(this);
         this._channel.stop();
         this._privacy.disconnectObject(this);
+        this._settings.disconnectObject(this);
         this._cancellable.cancel();
-        this._activity.close();
-        this._queue.clear();
+        this._pendingActivity = this._activity.close();
         if (this._retryId)
             GLib.source_remove(this._retryId);
-        // Release the keyboard and pointer grab before removing a visible popup.
+        // Destroying alone would leave the grab in place
         this._dialog?.popModal();
         this._dialog?.destroy();
         this._indicator.quickSettingsItems.forEach(item => item.destroy());
         this._indicator.destroy();
         this._retryId = 0;
         this._settings = this._privacy = this._channel = this._activity = null;
-        this._cancellable = null;
-        this._queue = this._lastAnswers = this._dialog = this._indicator = null;
+        this._queue = this._lastAnswers = this._names = this._cancellable = null;
+        this._dialog = this._indicator = null;
+    }
+
+    // The name the popup showed, which beats what an app calls itself
+    nameOf(recording) {
+        return this._names.get(recording.serial) ??
+            (recording.app || recording.flatpak || recording.binary || _('Unnamed app'));
+    }
+
+    // Takes an answer back: no more follow-ups, no remembered rule, and an
+    // allowed recording that's still going stops
+    undo(id) {
+        const event = this._activity.events.find(e => e.id === id);
+        if (!event || !canUndo(event))
+            return;
+
+        const allowed = event.action === 'allow';
+        if (this._lastAnswers.get(event.key)?.allowed === allowed)
+            this._lastAnswers.delete(event.key);
+        const rules = this._settings.get_value('rules').deepUnpack();
+        if (rules[event.key] === event.action) {
+            delete rules[event.key];
+            this._settings.set_value('rules', new GLib.Variant('a{ss}', rules));
+        }
+        for (const [node, recording] of this._channel.recordings) {
+            if (allowed && recording.serial === event.serial)
+                this._channel.stopRecording(node, recording.serial);
+        }
+        return this._activity.undo(event.id);
+    }
+
+    // Cleared only once the list is saved, so the settings window shows it
+    async _undoFromSettings() {
+        const id = this._settings.get_string('undo');
+        if (!id)
+            return;
+        await this.undo(id);
+        this._settings?.set_string('undo', '');
     }
 
     _sync() {
@@ -179,18 +221,16 @@ export default class MicSnitchExtension extends Extension {
 
     async _onRequest(id, request) {
         const previous = this._queue.get(id);
-        const sameRequest = previous?.request.serial === request.serial &&
+        const same = previous?.request.serial === request.serial &&
             previous?.request.kind === request.kind;
-        const entry = {request, app: sameRequest ? previous.app : null};
+        const entry = {request, app: same ? previous.app : null};
         this._queue.set(id, entry);
-        if (this._dialog?.requestId === id && previous &&
-            (previous.request.serial !== request.serial || previous.request.kind !== request.kind))
+        if (previous && !same && this._dialog?.requestId === id)
             this._dialog.close();
         entry.app = await identify(request, this._cancellable);
-        // The stream may disappear or change while its identity is being read.
-        if (this._queue?.get(id) !== entry)
-            return;
-        this._next();
+        // The stream may have changed or gone while we looked
+        if (this._queue?.get(id) === entry)
+            this._next();
     }
 
     _onWithdrawn(id) {
@@ -231,15 +271,14 @@ export default class MicSnitchExtension extends Extension {
         dialog.requestId = id;
         dialog.connect('response', (_d, allowed, remember) => {
             const current = this._queue.get(id)?.request;
-            if (Main.sessionMode.isLocked || !current ||
-                current.serial !== request.serial || current.kind !== request.kind)
+            if (Main.sessionMode.isLocked || current?.serial !== request.serial ||
+                current?.kind !== request.kind)
                 return;
-            // One choice can answer this app's other requests for the same kind.
+            // One answer covers everything the app asked for meanwhile
             for (const [other, entry] of this._queue) {
                 if (other === id || (app.key && entry.app?.key === app.key &&
-                    entry.request.kind === request.kind)) {
+                    entry.request.kind === request.kind))
                     this._answer(other, entry, allowed);
-                }
             }
             if (remember && app.key)
                 this._remember(`${request.kind}:${app.key}`, allowed);
@@ -253,7 +292,7 @@ export default class MicSnitchExtension extends Extension {
         if (dialog.open())
             return;
 
-        // Another Shell dialog may hold the grab. Try again once it has closed.
+        // Something else holds the screen, like the screenshot tool
         this._dialog = null;
         dialog.destroy();
         this._retryId = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 1, () => {
@@ -266,15 +305,18 @@ export default class MicSnitchExtension extends Extension {
     _answer(id, {app, request}, allowed, reason = 'once') {
         this._channel.answer(id, request.serial, request.kind, allowed);
         this._queue.delete(id);
-        if (app.key && (reason === 'once' || reason === 'follow-up')) {
-            this._lastAnswers.set(`${request.kind}:${app.key}`,
-                {allowed, until: GLib.get_monotonic_time() + FOLLOW_UP_US});
-        }
-        // Follow-ups are the same decision, so they don't fill the list
+        this._names.set(request.serial, app.name);
+        if (this._names.size > 100)
+            this._names.delete(this._names.keys().next().value);
+
+        const key = app.key && `${request.kind}:${app.key}`;
+        if (key && (reason === 'once' || reason === 'follow-up'))
+            this._lastAnswers.set(key, {allowed, until: GLib.get_monotonic_time() + FOLLOW_UP_US});
+        // A follow-up repeats a decision that's already listed
         if (reason !== 'follow-up') {
             this._activity.add({
                 app: app.name, kind: request.kind, source: request.source,
-                action: allowed ? 'allow' : 'deny', reason,
+                action: allowed ? 'allow' : 'deny', reason, key, serial: request.serial,
             });
         }
     }

@@ -66,12 +66,17 @@ await restored.loaded;
 assert(restored.events.length === 50 && restored.events[0].app === 'Test app 10' &&
     restored.events.at(-1).app === 'Test app 59',
     'Activity must retain the latest 50 decisions in the order they happened');
+assert(restored.events.every(e => e.id) && new Set(restored.events.map(e => e.id)).size === 50,
+    'Every decision needs its own id to be undone by');
+await restored.undo(restored.events.at(-1).id);
 await restored.close();
 const cache = Gio.File.new_for_path(`${directory}/micsnitch-activity.json`);
 const [, info] = GLib.file_get_contents(cache.get_path());
 const stored = JSON.parse(new TextDecoder().decode(info));
 assert(stored.session === 'first-login' && stored.events.length === 50,
     'Activity must be stored locally as a small list for this login');
+assert(stored.events.at(-1).undone === true && !stored.events.at(-2).undone,
+    'An undo must be saved, and only for that decision');
 assert((cache.query_info('unix::mode', Gio.FileQueryInfoFlags.NONE, null)
     .get_attribute_uint32('unix::mode') & 0o777) === 0o600,
     'Only the owner may read the activity file');
@@ -79,7 +84,7 @@ const nextLogin = new Activity('next-login');
 await nextLogin.loaded;
 assert(nextLogin.events.length === 0, 'A different login must not show an old activity file');
 await nextLogin.close();
-print('PASS: private activity keeps 50 decisions and survives extension reloads');
+print('PASS: private activity keeps 50 decisions, remembers undos and survives reloads');
 
 GLib.file_set_contents(`${bin}/pw-metadata`, `#!/bin/sh
 if [ "$1" != -m ]; then

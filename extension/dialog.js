@@ -1,7 +1,6 @@
 // SPDX-FileCopyrightText: 2026 miralemalic
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// A consent popup with a deliberate choice and an optional remembered answer.
 import Clutter from 'gi://Clutter';
 import GLib from 'gi://GLib';
 import GObject from 'gi://GObject';
@@ -13,7 +12,7 @@ import * as CheckBox from 'resource:///org/gnome/shell/ui/checkBox.js';
 import * as Dialog from 'resource:///org/gnome/shell/ui/dialog.js';
 import * as ModalDialog from 'resource:///org/gnome/shell/ui/modalDialog.js';
 
-// Give people a moment to notice the popup before accepting keyboard input.
+// Long enough that keys meant for another window can't answer by accident
 const ARM_DELAY_MS = 750;
 
 export const RequestDialog = GObject.registerClass({
@@ -47,7 +46,7 @@ export const RequestDialog = GObject.registerClass({
             }));
         }
 
-        // Offer a remembered rule only when we have an identity to match later.
+        // Nothing to go by, nothing to remember
         if (app.key) {
             this._remember = new CheckBox.CheckBox(app.verified
                 ? _('Remember for %s').format(app.program ?? name)

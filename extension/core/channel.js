@@ -1,8 +1,8 @@
 // SPDX-FileCopyrightText: 2026 miralemalic
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Requests and recording updates come from WirePlumber through pw-metadata.
-// Answers go back with the stream serial and kind so they cannot be reused.
+// WirePlumber and the popup talk through the "micsnitch" metadata, and
+// pw-metadata does the talking for us.
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import GObject from 'gi://GObject';
@@ -80,8 +80,8 @@ export class Channel extends GObject.Object {
         this.#setActive(null);
     }
 
-    // Both fields must still match: node IDs can be reused and a stream can
-    // switch between speaker audio and a microphone while a popup is open.
+    // Node ids get reused and a stream can move from the speakers to the mic,
+    // so an answer names the exact stream and kind it was for
     answer(id, serial, kind, allow) {
         return this.#set(id, 'micsnitch.answer',
             `${allow ? 'allow' : 'deny'} ${serial} ${kind}`);
@@ -103,7 +103,7 @@ export class Channel extends GObject.Object {
     }
 
     #set(id, key, value) {
-        // Readiness must reach the policy before any answers sent on unlock.
+        // One at a time, so nothing overtakes what was sent before it
         this.#writes = this.#writes.then(async () => {
             const process = Gio.Subprocess.new(['pw-metadata', '-n', NAME, `${id}`, key, value],
                 Gio.SubprocessFlags.STDOUT_SILENCE | Gio.SubprocessFlags.STDERR_SILENCE);
@@ -135,7 +135,7 @@ export class Channel extends GObject.Object {
         this.#setActive(null);
         if (!this.#running || this.#retryId)
             return;
-        // The monitor exits if PipeWire restarts. Give it time to come back.
+        // pw-metadata goes away along with PipeWire, so wait for it to return
         this.#retryId = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 2, () => {
             this.#retryId = 0;
             this.start();

@@ -74,6 +74,9 @@ expect_denied() {
     if wait "$2"; then code=0; else code=$?; fi
     case $code in 0|124|137) check "$1" "exit $code" error ;; *) check "$1" error error ;; esac
 }
+undo_in_menu() {
+    shell "$toggle._recent._getMenuItems().find(i => i.get_children().some(c => c.get_first_child?.()?.text === '$1')).get_children().find(c => c.get_label?.() === 'Undo').emit('clicked', 1)" >/dev/null
+}
 stop_first_recording() {
     shell "$toggle._recordings._getMenuItems()[0].get_children().find(c => c.get_label?.() === 'Stop').emit('clicked', 1)" >/dev/null
 }
@@ -119,6 +122,17 @@ check 'the active recording is ChatGPT' \
 wait_shell "$obj._activity.events.length >= 2" true
 check 'recent activity includes allow and deny' \
     "$(shell "['allow','deny'].every(a => $obj._activity.events.some(e => e.action === a))")" true
+
+# Without the undo, Slack would be refused again for 30 seconds
+undo_in_menu Slack
+wait_shell "$obj._activity.events.some(e => e.app === 'Slack' && e.undone)" true
+recorder Slack /tmp/slack2.wav >>"$out/slack.log" 2>&1 & slack2=$!
+wait_shell "$obj._dialog != null" true
+check 'after Undo in the menu a denied app is asked again' \
+    "$(shell "$obj._queue.get($obj._dialog.requestId).app.name")" Slack
+sleep 1
+shell "$obj._dialog._respond(false)" >/dev/null
+expect_denied 'and can be refused again' "$slack2"
 
 shell "Main.panel.statusArea.quickSettings.menu.open(); $toggle.menu.open()" >/dev/null
 # Let some real sound reach the recorder before stopping it
@@ -171,11 +185,22 @@ check 'locking holds the recorder instead of timing it out' \
     "$(kill -0 "$locked_rule" 2>/dev/null && echo waiting || echo stopped)" waiting
 shell "Main.sessionMode.popMode('unlock-dialog')" >/dev/null
 wait_shell "$ext.state" 1
+wait_shell "$obj._activity.events.some(e => e.app === 'Slack' && e.undone)" true
+check 'decisions from before the lock are still listed' "$?" 0
 wait_shell "$obj._channel.recordings.size" 1
 check 'unlock restores the extension and applies the remembered rule' \
     "$(shell "$obj._dialog == null && $obj._queue.size === 0")" true
 stop_first_recording
 expect_denied 'the recording allowed on unlock can be stopped' "$locked_rule"
+
+# The settings window asks through the undo key
+recorder ChatGPT /tmp/undo.wav >"$out/undo.log" 2>&1 & undone=$!
+wait_shell "$obj._channel.recordings.size" 1
+shell "$obj._settings.set_string('undo', $obj._activity.events.findLast(e => e.app === 'ChatGPT' && e.action === 'allow').id)" >/dev/null
+expect_denied 'Undo from settings stops an allowed recording' "$undone"
+wait_shell "$obj._settings.get_string('undo')" ''
+check 'and forgets the remembered answer' \
+    "$(shell "Object.keys($obj._settings.get_value('rules').deepUnpack()).length")" 0
 
 recorder Unremembered /tmp/disable.wav >"$out/disable.log" 2>&1 & disabled=$!
 wait_shell "$obj._dialog != null" true
@@ -189,7 +214,7 @@ wait_shell "$obj._dialog != null" true
 check 'recent decisions survive extension disable and re-enable' \
     "$(shell "$obj._activity.events.length >= $history_count")" true
 sleep 1
-shell "$obj._dialog._respond(false)" >/dev/null
+shell "$obj._dialog._remember.checked = true; $obj._dialog._respond(false)" >/dev/null
 expect_denied 'the restored popup can deny its pending recorder' "$disabled"
 check 'the extension remains protected' "$(shell "$obj._channel.active")" true
 shell "Main.extensionManager.openExtensionPrefs('micsnitch@miralemalic', '', {})" >/dev/null
@@ -204,9 +229,12 @@ rows=$(LC_ALL=C.UTF-8 WAYLAND_DISPLAY=wayland-0 GI_TYPELIB_PATH=$shew LD_LIBRARY
     "$HOME/.local/share/gnome-shell/extensions/micsnitch@miralemalic" 2>"$out/prefs.log")
 printf '%s\n' "$rows" >"$out/prefs.txt"
 check 'settings list the remembered app' \
-    "$(grep -c '^electron / ChatGPT | Microphone · Always allowed$' <<<"$rows")" 1
+    "$(grep -c '^electron / Unremembered | Microphone · Always denied$' <<<"$rows")" 1
 check 'settings list recent decisions, newest first' \
     "$(grep -E ' · (Allowed|Denied|Stopped) · ' <<<"$rows" | head -1 | cut -d' ' -f1)" Unremembered
+check 'settings offer Undo on a decision' "$(grep -c '^Unremembered | .*\[Undo\]$' <<<"$rows")" 1
+check 'settings show what was undone, without Undo' \
+    "$(grep ' · undone' <<<"$rows" | grep -vc '\[Undo\]')" 2
 check 'GNOME Shell logged no errors from MicSnitch' \
     "$(grep -A25 -E 'JS ERROR|JS WARNING|Gjs-CRITICAL' "$out/shell.log" | grep -ci micsnitch)" 0
 echo 'popup checks passed'

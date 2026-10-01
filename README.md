@@ -1,24 +1,77 @@
 # MicSnitch
 
-Asks before an app records your microphone or system audio.
+**Nothing listens until you say so.**
 
-MicSnitch holds the audio connection while a GNOME Shell popup asks for your
-answer. Allow lets that recording through; Deny sends the app an error. You
-can remember either answer, separately for microphone and system audio.
+Any program you run can open your microphone without a word. Most never will.
+MicSnitch is for the ones that might.
+
+Every attempt to record, whether your microphone or whatever your speakers are
+playing, is stopped at the door and brought to you. You decide. Nothing crosses
+in the meantime.
 
 ```text
 Allow ChatGPT to use the microphone?
 Built-in Microphone
-☐ Remember for ChatGPT
+☐ Remember for anything calling itself ChatGPT
                                   [ Deny ]  [ Allow ]
 ```
 
+## The setup
+
+Two parts, one job.
+
+- **The gate** lives inside WirePlumber, where every audio connection on the
+  system is made. A request to listen is held there before a single sample
+  moves.
+- **The handler** is a GNOME Shell extension. It puts the question in front of
+  you, carries your answer back and keeps the log.
+
+They speak through a PipeWire metadata object called `micsnitch`. To watch the
+wire: `pw-metadata -m -n micsnitch`.
+
+## Rules of engagement
+
+- **Allow** opens the line for that one recording. The next one asks again.
+- **Deny** cuts it and hands the app an error.
+- **Remember** turns an answer into standing orders, for the microphone and
+  system audio separately. Revoke them in the settings.
+- An app that knocks again within 30 seconds of your answer gets the same
+  answer. Chromium-based apps knock three times for every click; you hear it
+  once.
+- The **MicSnitch** tile in Quick Settings shows who is listening right now,
+  with a **Stop** for each. Switch the tile off and every line goes dead at
+  once. If the gate ever goes down, the tile shows a warning.
+- **Recent activity** holds the latest decisions: ten in the menu, fifty in the
+  settings, none from before this login and never any audio. An allow or deny
+  there can be taken back with **Undo**.
+- On a locked screen, requests wait for you. Nothing is approved behind your
+  back. With no handler at all, the answer after 15 seconds is no.
+
+## Field limits
+
+MicSnitch is a checkpoint, not a vault. Know where its walls end.
+
+- Most apps reach the sound system through PulseAudio, and there they name
+  themselves. Anything can claim to be ChatGPT, which is why the popup says
+  "anything calling itself". Apps that talk to PipeWire directly are named by
+  the kernel, down to the program on disk. For a script, that's its
+  interpreter, python3 and all.
+- Code running as you and built to beat MicSnitch can forge an answer, rewrite
+  the configuration or open the sound card directly through ALSA. A link
+  raced in the instant an app connects is cut on sight, but a few milliseconds
+  may already have slipped through. Untrusted software belongs in a sandbox
+  without a microphone.
+- Apps lose PipeWire's link-factory, so patchbays like qpwgraph and Helvum,
+  and JACK apps that wire their own ports, can't. Loading PulseAudio modules is
+  switched off too: a loopback would be a tunnel under the gate.
+
 ## Works on
 
-GNOME **48 to 51** with PipeWire **1.2 or newer** and WirePlumber **0.5.8 or
-newer**: Fedora 43, 44 and 45, Ubuntu 26.04, Debian 13, Arch and the like.
-Ubuntu 24.04, Debian 12 and Linux Mint 22 ship WirePlumber 0.4, which works
-differently and isn't supported. Other desktops have no popup yet.
+GNOME **48 to 51**, PipeWire **1.2+** and WirePlumber **0.5.8+**: Fedora 43,
+44 and 45, Ubuntu 26.04, Debian 13, Arch and friends. On WirePlumber older than
+0.5.12, Debian 13's included, a request that times out is refused without a
+notification. Ubuntu 24.04, Debian 12 and Linux Mint 22 run WirePlumber 0.4
+and are out of reach. Other desktops have no handler yet.
 
 ## Install
 
@@ -28,104 +81,40 @@ cd micsnitch
 tools/install.sh
 ```
 
-Everything is installed for your user; no root access is needed. Audio
-restarts for a second, so don't do it in the middle of a call. Then log out
-and back in once to load the popup.
+Everything goes into your own account, no root needed. Audio drops for a
+second, so not mid-call. Log out and back in to bring the handler online. To
+update, `git pull` and run `tools/install.sh` again.
 
-To update, run `git pull` and `tools/install.sh` again. MicSnitch isn't on
-extensions.gnome.org: the site can only install the popup, and the popup does
-nothing without the policy.
+Without a supported GNOME the installer refuses: no handler means nothing could
+ever be allowed. `--no-extension` installs the gate alone if that's what you
+want, and `--no-restart` leaves the audio running until you restart it
+yourself.
 
-`--no-restart` installs the files without restarting audio. Without a
-supported GNOME the installer stops, because nothing could be allowed and every
-app would be refused the microphone. `--no-extension` installs the policy alone
-anyway.
+MicSnitch isn't on extensions.gnome.org. The site can only ship the handler,
+and the handler is nothing without the gate.
 
-Without a popup, requests wait for 15 seconds and are then denied. While the
-screen is locked, requests wait until you unlock it; the controls and consent
-popup are removed. Timeout denials are logged by WirePlumber; desktop
-notifications require its notifications plugin, available since **0.5.12**.
+To remove every trace of the gate, the handler and the log:
 
 ```sh
 tools/uninstall.sh
 ```
 
-The uninstaller removes the policy, popup and recent activity, then restarts
-audio. It also accepts `--no-restart`. Saved permission preferences remain
-in GSettings.
-
-## Recording controls
-
-Open the MicSnitch menu in GNOME Quick Settings to see who is recording,
-what they are recording, and the source. Each recording has a **Stop** button.
-Only active audio connections appear; allowing a request alone does not count
-as recording. Switching the MicSnitch tile off stops all recordings and blocks
-new ones. If the policy isn't running, the tile shows a warning sign.
-
-Stop disconnects that recording and removes its approval. Other recordings
-continue. If the app starts another recording, it asks again unless a
-remembered rule answers it. Stop does not erase saved rules; edit those in
-the extension's preferences.
-
-The menu also shows the last 10 decisions observed while the extension is
-enabled, including recordings stopped from the menu, and the extension's
-settings show the last 50. The list is saved privately
-in `$XDG_RUNTIME_DIR/micsnitch-activity.json`, and contains no audio. It survives
-lock/unlock and audio-service restarts, and resets for a new login. Restarting
-GNOME Shell may also reset it. No decision history is published through
-PipeWire. Like other user files, it is accessible to software running with your
-user's permissions.
-
-## How it works
-
-The WirePlumber script holds connections that would feed an app audio owned
-by another client: a microphone, speaker audio, or another app's sound fed
-into a virtual device. The GNOME extension shows requests and remembers
-answers. They communicate through a PipeWire metadata object called
-`micsnitch`, containing pending requests and current recording status.
-
-Approvals belong to one recording stream and one audio type. Allowing speaker
-audio does not let that stream switch to the microphone without asking.
-WirePlumber's live status disappears if it stops, so the menu can show when
-the policy is unavailable.
-
-## Identity and limits
-
-MicSnitch is a consent tool, not a sandbox. Software running as your user can
-change the metadata or audio configuration, open the sound card directly
-through ALSA, or race the initial permission setup. A raced link is cut when
-found, but some sound may already have flowed. Run software you do not trust
-in a sandbox without audio access.
-
-Native PipeWire clients are identified using kernel-supplied process
-information. For scripts, the program may be an interpreter such as python3.
-PulseAudio clients supply their own names, which cannot be verified. Their
-remembered rules go by both the program and the name it gives, so Slack and
-ChatGPT don't share a rule just because both run on `electron`. Apps built on
-Chromium all call themselves "Chromium input", so those are shown by their
-program name. An app can still deliberately claim another app's name; the
-popup explains this limitation.
-
-MicSnitch removes the link-factory from ordinary clients. Patchbays such as
-qpwgraph and Helvum, and JACK apps that make their own links, cannot freely
-connect ports. PulseAudio module loading is disabled to prevent loopbacks
-from routing audio around the policy.
+Remembered answers stay in GSettings.
 
 ## Tests
 
-The tests run in containers, each with its own PipeWire, a fake microphone
-and, for the popup, a hidden GNOME Shell. They never touch your desktop or
-your audio devices. They need Podman.
+Every test runs in a container with its own PipeWire, a fake microphone
+playing a tone and, for the popup, a GNOME Shell no one can see. Your desktop
+and your devices are never touched. Podman required.
 
 ```sh
-tests/matrix.sh                          # the policy on every distro
-tests/container.sh fedora44 tests/run.sh # the policy on one
-tests/popup.sh fedora44                  # the popup on GNOME 50
-tests/harness.sh                         # the test runner itself
+tests/matrix.sh                          # the gate, on every distro
+tests/container.sh fedora44 tests/run.sh # the gate, on one
+tests/popup.sh fedora44                  # the handler, on GNOME 50
+tests/harness.sh                         # the tests, tested
 ```
 
-For the popup, `debian13` has GNOME 48, `fedora43` 49, `fedora44` 50 and
-`fedora45` 51. The hidden Shell's log ends up in `shots/`.
+`debian13` has GNOME 48, `fedora43` 49, `fedora44` 50 and `fedora45` 51.
 
 ## License
 
