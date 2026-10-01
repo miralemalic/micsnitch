@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist gettext-domain="micsnitch">
+  <schema id="org.gnome.shell.extensions.micsnitch"
+          path="/org/gnome/shell/extensions/micsnitch/">
+    <key name="rules" type="a{ss}">
+      <default>{}</default>
+      <summary>Remembered answers</summary>
+      <description>Maps “mic:” or “system:” plus an app to “allow” or “deny”.</description>
+    </key>
+    <key name="system-audio" type="b">
+      <default>true</default>
+      <summary>Ask before apps record system audio</summary>
+    </key>
+  </schema>
+</schemalist>

@@ -1,0 +1,84 @@
+#!/bin/bash
+# Installs MicSnitch for the current user. No root needed.
+#   --no-restart    leave the audio services running
+#   --no-extension leave out the GNOME popup
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+data=${XDG_DATA_HOME:-$HOME/.local/share}
+cfg=${XDG_CONFIG_HOME:-$HOME/.config}
+uuid=micsnitch@miralemalic
+restart=1 extension=1
+for arg; do
+    case $arg in
+        --no-restart) restart=0 ;;
+        --no-extension) extension=0 ;;
+        *) echo "Unknown option: $arg" >&2; exit 1 ;;
+    esac
+done
+
+need() {
+    command -v "$1" >/dev/null || { echo "Missing $1; install it before continuing." >&2; exit 1; }
+}
+check_version() {
+    local output
+    output=$("$1" --version)
+    if [[ $output =~ ([0-9]+)\.([0-9]+)\.([0-9]+) ]] &&
+       (( 10#${BASH_REMATCH[1]} * 1000000 + 10#${BASH_REMATCH[2]} * 1000 +
+          10#${BASH_REMATCH[3]} >= $2 * 1000000 + $3 * 1000 + $4 )); then
+        return
+    fi
+    echo "MicSnitch needs $1 $2.$3.$4 or newer." >&2
+    exit 1
+}
+for cmd in pipewire wireplumber; do need "$cmd"; done
+[ "$restart" = 0 ] || need systemctl
+check_version pipewire 1 2 0
+check_version wireplumber 0 5 8
+
+if [ "$extension" = 1 ] && {
+    ! command -v gnome-extensions >/dev/null ||
+    ! command -v gnome-shell >/dev/null ||
+    { [ -n "${XDG_CURRENT_DESKTOP:-}" ] && [[ ${XDG_CURRENT_DESKTOP,,} != *gnome* ]]; }
+}; then
+    echo "No GNOME session found; installing the policy without a popup."
+    extension=0
+fi
+if [ "$extension" = 1 ] && ! [[ $(gnome-shell --version) =~ (^|[[:space:]])50([.[:space:]]|$) ]]; then
+    echo "The popup supports GNOME 50; installing the policy without a popup."
+    extension=0
+fi
+
+if [ "$extension" = 1 ]; then
+    for cmd in pw-metadata stdbuf glib-compile-schemas; do need "$cmd"; done
+    out=$(mktemp -d)
+    trap 'rm -rf "${out:?}"' EXIT
+    # Catch packaging and schema errors before putting a policy in the audio stack.
+    glib-compile-schemas --strict --dry-run extension/schemas
+    (cd extension && gnome-extensions pack -q --force --out-dir="$out" \
+        --extra-source=core --extra-source=dialog.js .)
+    gnome-extensions install --force "$out/$uuid.shell-extension.zip"
+    glib-compile-schemas "$data/gnome-shell/extensions/$uuid/schemas"
+fi
+
+install -Dm644 wireplumber/micsnitch.lua "$data/wireplumber/scripts/micsnitch.lua"
+install -Dm644 wireplumber/micsnitch.conf "$cfg/wireplumber/wireplumber.conf.d/micsnitch.conf"
+for conf in pipewire.conf.d pipewire-pulse.conf.d; do
+    install -Dm644 "pipewire/$conf/50-micsnitch.conf" "$cfg/pipewire/$conf/50-micsnitch.conf"
+done
+
+if [ "$extension" = 1 ]; then
+    gnome-extensions enable "$uuid" 2>/dev/null || true
+fi
+if [ "$restart" = 1 ]; then
+    systemctl --user restart pipewire pipewire-pulse wireplumber
+fi
+
+if [ "$extension" = 1 ]; then
+    echo "Done. Log out and back in once to start the popup."
+else
+    echo "No popup installed: requests time out and are denied after 15 seconds."
+fi
+if [ "$restart" = 0 ]; then
+    echo "Restart pipewire, pipewire-pulse and wireplumber when ready to activate the policy."
+fi

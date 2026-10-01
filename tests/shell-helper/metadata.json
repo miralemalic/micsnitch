@@ -1,0 +1,12 @@
+{
+    "uuid": "micsnitch-test-helper@miralemalic",
+    "name": "MicSnitch test helper",
+    "description": "Lets tests/popup.sh take screenshots of a throwaway shell. Never install this in a real session.",
+    "shell-version": [
+        "50"
+    ],
+    "session-modes": [
+        "user",
+        "unlock-dialog"
+    ]
+}

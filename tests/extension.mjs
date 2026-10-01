@@ -1,0 +1,156 @@
+// Check app identity, private activity storage and the metadata connection.
+import Gio from 'gi://Gio';
+import GLib from 'gi://GLib';
+import System from 'system';
+
+function assert(condition, message) {
+    if (!condition)
+        throw new Error(message);
+}
+
+// GLib chooses the runtime directory at startup. Run in a fresh process so
+// this test never reads or writes the desktop's real activity file.
+if (!GLib.getenv('MICSNITCH_EXTENSION_TEST_RUNTIME')) {
+    const temporary = GLib.dir_make_tmp('micsnitch-extension-XXXXXX');
+    const launcher = new Gio.SubprocessLauncher({
+        flags: Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE,
+    });
+    launcher.setenv('XDG_RUNTIME_DIR', temporary, true);
+    launcher.setenv('MICSNITCH_EXTENSION_TEST_RUNTIME', temporary, true);
+    const child = launcher.spawnv(['gjs', '-m', GLib.filename_from_uri(import.meta.url)[0]]);
+    const [, stdout, stderr] = child.communicate_utf8(null, null);
+    if (stdout) print(stdout.trim());
+    if (stderr) printerr(stderr.trim());
+    System.exit(child.get_exit_status());
+}
+const directory = GLib.getenv('MICSNITCH_EXTENSION_TEST_RUNTIME');
+assert(directory === GLib.get_user_runtime_dir() &&
+    GLib.path_get_basename(directory).startsWith('micsnitch-extension-'),
+    'The test needs its own runtime directory');
+const bin = `${directory}/bin`;
+GLib.mkdir_with_parents(bin, 0o700);
+GLib.setenv('PATH', `${bin}:${GLib.getenv('PATH')}`, true);
+GLib.setenv('TEST_WRITES', `${directory}/writes`, true);
+
+const {Activity} = await import('../extension/core/activity.js');
+const {Channel} = await import('../extension/core/channel.js');
+const {identify} = await import('../extension/core/identity.js');
+
+const chat = await identify({app: 'ChatGPT', binary: 'electron'});
+const slack = await identify({app: 'Slack', binary: 'electron'});
+assert(chat.key !== slack.key, 'Apps sharing an executable must not share an unverified rule');
+for (const app of [chat, slack])
+    assert(app.key === `app:${app.claim}` && app.name === app.claim,
+        'The remembered claim must be the name shown to the user');
+print('PASS: unverified names have separate rules and matching labels');
+
+const activity = new Activity('first-login');
+await activity.loaded;
+for (let i = 0; i < 25; i++) {
+    await activity.add({time: Math.floor(GLib.get_real_time() / 1e6), app: `Test app ${i}`,
+        kind: 'mic', action: 'allow', reason: 'once'});
+}
+await activity.close();
+const restored = new Activity('first-login');
+await restored.loaded;
+assert(restored.events.length === 10 && restored.events[0].app === 'Test app 15' &&
+    restored.events.at(-1).app === 'Test app 24',
+    'Activity must retain the latest 10 decisions in the order they happened');
+await restored.close();
+const cache = Gio.File.new_for_path(`${directory}/micsnitch-activity.json`);
+const [, info] = GLib.file_get_contents(cache.get_path());
+const stored = JSON.parse(new TextDecoder().decode(info));
+assert(stored.session === 'first-login' && stored.events.length === 10,
+    'Activity must be stored locally as a small list for this login');
+assert((cache.query_info('unix::mode', Gio.FileQueryInfoFlags.NONE, null)
+    .get_attribute_uint32('unix::mode') & 0o777) === 0o600,
+    'Only the owner may read the activity file');
+const nextLogin = new Activity('next-login');
+await nextLogin.loaded;
+assert(nextLogin.events.length === 0, 'A different login must not show an old activity file');
+await nextLogin.close();
+print('PASS: private activity keeps 10 decisions and survives extension reloads');
+
+GLib.file_set_contents(`${bin}/pw-metadata`, `#!/bin/sh
+if [ "$1" != -m ]; then
+    [ "$4" != micsnitch.ui ] || sleep 0.05
+    [ "$4:$5" != micsnitch.block:1 ] || sleep 0.15
+    printf '%s\\n' "$*" >> "$TEST_WRITES"
+    exit
+fi
+cat <<'UPDATES'
+update: id:0 key:'micsnitch.active' value:'2' type:'Spa:String'
+update: id:77 key:'micsnitch.active' value:'2' type:'Spa:String'
+update: id:12 key:'micsnitch.request' value:'{"serial":123,"kind":"mic","app":"Test app"}' type:'Spa:String:JSON'
+update: id:12 key:'micsnitch.recording' value:'{"serial":123,"kind":"mic","source":"Test microphone"}' type:'Spa:String:JSON'
+UPDATES
+sleep 0.1
+cat <<'UPDATES'
+remove: id:12 all keys
+remove: id:77 all keys
+UPDATES
+`);
+GLib.chmod(`${bin}/pw-metadata`, 0o700);
+const channel = new Channel();
+let finish;
+const complete = new Promise(resolve => { finish = resolve; });
+let transitions = 0;
+let request = false;
+let withdrawn = false;
+let recording = false;
+channel.connect('notify::active', () => {
+    transitions++;
+    if (channel.active) {
+        channel.readiness();
+        channel.answer(12, 123, 'mic', true);
+        channel.stopRecording(12, 123);
+    } else {
+        channel.stop();
+        GLib.timeout_add(GLib.PRIORITY_DEFAULT, 100, () => {
+            finish();
+            return GLib.SOURCE_REMOVE;
+        });
+    }
+});
+channel.connect('request', (_c, id, data) => {
+    request = id === 12 && data.serial === 123 && data.kind === 'mic';
+});
+channel.connect('withdrawn', (_c, id) => { withdrawn ||= id === 12; });
+channel.connect('recordings-changed', () => {
+    recording ||= channel.recordings.get(12)?.source === 'Test microphone';
+});
+channel.start();
+await complete;
+assert(transitions === 2 && request && withdrawn && recording && !channel.recordings.size,
+    'Requests, actual recordings and subject removal must reach the UI');
+const writes = new TextDecoder().decode(GLib.file_get_contents(`${directory}/writes`)[1]);
+assert(writes.includes('allow 123 mic\n') && writes.includes('micsnitch.stop 123') &&
+    /micsnitch.ui ready \d+/.test(writes),
+    'Answers must include recording kind and readiness must include its monitor PID');
+assert(writes.indexOf('micsnitch.ui ready') < writes.indexOf('allow 123 mic') &&
+    writes.indexOf('allow 123 mic') < writes.indexOf('micsnitch.stop 123'),
+    'Readiness writes must finish before decisions and Stop');
+print('PASS: protocol tracks liveness, recording removal and scoped answers');
+
+// A rapid lock/unlock creates a new Channel while old writes are still queued.
+const previous = new Channel();
+previous.tell('block', '1');
+const previousWrites = previous.tell('ui', 'locked');
+const next = new Channel(previousWrites);
+next.tell('ui', 'ready 4242');
+next.answer(99, 999, 'mic', true);
+await next.tell('block', '0');
+const handoff = new TextDecoder().decode(GLib.file_get_contents(`${directory}/writes`)[1]);
+const ordered = ['micsnitch.block 1', 'micsnitch.ui locked',
+    'micsnitch.ui ready 4242', 'allow 999 mic', 'micsnitch.block 0'];
+assert(ordered.every((value, i) => handoff.indexOf(value) >= 0 &&
+    (i === 0 || handoff.indexOf(ordered[i - 1]) < handoff.indexOf(value))),
+    'Old lock writes must finish before the new connection publishes readiness and answers');
+print('PASS: rapid lock/unlock preserves write order across connections');
+
+for (const path of ['micsnitch-activity.json', 'bin/pw-metadata', 'writes']) {
+    const file = Gio.File.new_for_path(`${directory}/${path}`);
+    if (file.query_exists(null)) file.delete(null);
+}
+for (const path of ['bin', ''])
+    Gio.File.new_for_path(`${directory}/${path}`).delete(null);
