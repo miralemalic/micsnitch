@@ -3,8 +3,7 @@
 }
 
 /* Some extensions paint every icon in the accent colour, which shows the
-   tick even when the box is off. These win on specificity and otherwise
-   say what GNOME's own stylesheet says. */
+   tick even when the box is off which SUCKS HARD. */
 .check-box.micsnitch-remember StIcon {
   color: transparent;
 }
