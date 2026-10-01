@@ -6,8 +6,7 @@ Any program you run can open your microphone without a word. Most never will.
 MicSnitch is for the ones that might.
 
 Every attempt to record, whether your microphone or whatever your speakers are
-playing, is stopped at the door and brought to you. You decide. Nothing crosses
-in the meantime.
+playing, is stopped at the door and brought to you. You decide. 
 
 ```text
 Allow Discord to use the microphone?
@@ -80,13 +79,35 @@ MicSnitch is a checkpoint, not a vault. Know where its walls end.
   the kernel, down to the program on disk. For a script, that's its
   interpreter, python3 and all.
 - Code running as you and built to beat MicSnitch can forge an answer, rewrite
-  the configuration or open the sound card directly through ALSA. A link
-  raced in the instant an app connects is cut on sight, but a few milliseconds
-  may already have slipped through. Untrusted software belongs in a sandbox
-  without a microphone.
+  the configuration or open the sound card directly through ALSA. Shutting that
+  last door takes a rule in the kernel itself, one that lets only PipeWire near
+  the hardware. MicSnitch doesn't go that deep yet. I plan to build it when I get
+  the time, and a pull request that beats me to it would be welcome.
+- A link raced in the instant an app connects is cut on sight, but a few
+  milliseconds may already have slipped through.
 - Apps lose PipeWire's link-factory, so patchbays like qpwgraph and Helvum,
   and JACK apps that wire their own ports, can't. Loading PulseAudio modules is
   switched off too: a loopback would be a tunnel under the gate.
+
+## Going further
+
+MicSnitch watches the door. These keep people from climbing in through the
+windows.
+
+- **Sandbox what you don't trust.** Install it as a Flatpak and take its sound
+  away in Flatseal: untick *PulseAudio socket*, and *All devices* too, or it can
+  still reach the sound card directly. It can't hear anything then, but it can't
+  play anything either.
+- **Stop programs reaching into each other.** This keeps one program from
+  hooking into another that's already running, MicSnitch included:
+
+  ```sh
+  sudo sysctl kernel.yama.ptrace_scope=1
+  ```
+
+  Ubuntu does this by default, Fedora doesn't. It lasts until the next reboot;
+  to keep it, put `kernel.yama.ptrace_scope = 1` in a file under
+  `/etc/sysctl.d/`. Debuggers then need `sudo` to attach.
 
 ## Install
 
