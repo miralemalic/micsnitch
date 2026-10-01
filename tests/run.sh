@@ -1,5 +1,5 @@
 #!/bin/bash
-# Policy regressions, always in a private PipeWire container:
+# The gate's tests. They run in a container:
 #   tests/container.sh fedora44 tests/run.sh
 # shellcheck source=tests/lib.sh
 . "$(dirname "$0")/lib.sh"
@@ -62,7 +62,7 @@ finish_recorder() {
 
 feed_fake_mic
 start_popup
-check "protection has a live nonzero owner" \
+check "the gate says it's on" \
     "$(entries micsnitch.active | python3 -c 'import json,sys; e=json.load(sys.stdin); print("live" if len(e)==1 and e[0]["id"]>0 and str(e[0]["value"])=="2" else "invalid")')" live
 
 echo "held"
@@ -229,10 +229,10 @@ check "the existing popup connection hears new requests" \
 check "popup answers still work after restart" "$(sound_of /tmp/restart.wav)" sound
 
 echo "activity privacy"
-check "completed decisions do not leave a shared history" "$(entries micsnitch.history)" '[]'
+check "nothing is left behind for other apps to read" "$(entries micsnitch.history)" '[]'
 
 echo "popup liveness"
-# The extension stops its monitor on lock but deliberately holds requests.
+# On lock the popup goes away, but requests wait for it
 say 0 micsnitch.ui locked
 kill "$watch"
 wait "$watch" 2>/dev/null
@@ -246,12 +246,13 @@ answer "$req" deny
 wait "$rec"
 check "unlock can still answer the waiting request" "$(refused "$?")" error
 
-# Abrupt death leaves ready in metadata; that old value must not disable timeout.
+# A popup that crashes never says goodbye, so its "ready" stays behind.
+# The timeout has to work anyway.
 timeout -k 1 25 pw-record --target fake-mic /tmp/dead-popup.wav >/dev/null 2>&1 & rec=$!
 wait_request
 kill "$watch"
 wait "$watch" 2>/dev/null
-# Another connection must not restore the dead ready claim.
+# And a new connection can't bring that dead "ready" back
 pw-dump >/dev/null
 check "a dead monitor clears the ready claim" "$(entries micsnitch.ui | python3 -c 'import json,sys; e=json.load(sys.stdin); print(e[0]["value"] if e else "missing")')" off
 start=$SECONDS
@@ -265,7 +266,7 @@ say 0 micsnitch.ui 'ready 999999'
 start=$SECONDS
 timeout -k 1 25 pw-record --target fake-mic /tmp/wrong-popup.wav >/dev/null 2>&1
 code=$?; took=$((SECONDS - start))
-check "an invented ready PID cannot suppress refusal" "$(refused "$code")" error
+check "faking the popup's pid doesn't stop the timeout" "$(refused "$code")" error
 check "an invented popup PID uses the normal timeout" \
     "$([ "$took" -ge 13 ] && [ "$took" -le 20 ] && echo ok || echo "${took}s")" ok
 say 0 micsnitch.ui off

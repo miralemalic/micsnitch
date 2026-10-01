@@ -18,8 +18,8 @@ import {Channel} from './core/channel.js';
 import {identify} from './core/identity.js';
 import {RequestDialog} from './dialog.js';
 
-// Chromium-based apps reopen the mic several times for one click, so an
-// answer also covers the same app for a little while after
+// Chromium-based apps reopen the mic several times for one click,
+// so an answer also covers the same app for a little while after
 const FOLLOW_UP_US = 30 * GLib.USEC_PER_SEC;
 const MENU_EVENTS = 10;
 
@@ -177,8 +177,8 @@ export default class MicSnitchExtension extends Extension {
             (recording.app || recording.flatpak || recording.binary || _('Unnamed app'));
     }
 
-    // Takes an answer back: no more follow-ups, no remembered rule, and an
-    // allowed recording that's still going stops
+    // Takes an answer back. No more follow-ups, no remembered rule,
+    // and an allowed recording that's still going stops.
     undo(id) {
         const event = this._activity.events.find(e => e.id === id);
         if (!event || !canUndo(event))

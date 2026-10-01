@@ -52,9 +52,9 @@ function describe(key, info, name, detail, verified) {
     };
 }
 
-// Who is asking, as far as that can be trusted. When an app connects to
-// PipeWire itself, the kernel tells us its pid. Through pipewire-pulse all
-// we get is what the app says about itself.
+// Who is asking, as far as that can be trusted.
+// When an app connects to PipeWire itself, the kernel tells us its pid.
+// Through pipewire-pulse all we get is what the app says about itself.
 export async function identify(request, cancellable = null) {
     const {sec_pid: pid, flatpak, binary} = request;
 
@@ -70,17 +70,17 @@ export async function identify(request, cancellable = null) {
         return {...app, program};
     }
 
-    // A claimed pid is good for a name and an icon, nothing more, and only
-    // if that process really runs the program the app claims
+    // A claimed pid is good for a name and an icon, nothing more,
+    // and only if that process really runs the program the app claims
     const mine = request.pid && binary &&
         (await read(`/proc/${request.pid}/comm`, cancellable)).trim() === binary.slice(0, 15);
     let launched = mine ? await appOfPid(request.pid, cancellable) : null;
     if (!launched?.get_executable()?.includes(binary))
         launched = null;
 
-    // Chromium-based apps all call themselves "Chromium input", so the
-    // program name says more. Rules go by both, and a web app by its own
-    // launcher, so apps sharing electron or a browser don't share a rule.
+    // Chromium-based apps all call themselves "Chromium input", so the program name says more.
+    // Rules go by both, and a web app by its own launcher,
+    // so apps sharing electron or a browser don't share a rule.
     const named = request.app?.startsWith('Chromium') ? null : request.app;
     const claim = flatpak ?? launched?.get_id().replace(/\.desktop$/, '') ??
         ([binary, named].filter(Boolean).join(' / ') || null);

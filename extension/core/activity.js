@@ -48,7 +48,7 @@ export class Activity extends GObject.Object {
     #file = activityFile();
     #writes;
 
-    // Reads only once whatever an earlier instance is still saving has landed
+    // Wait for the last run's saves before reading
     constructor(session, previous = Promise.resolve()) {
         super();
         this.#session = session;
@@ -92,8 +92,8 @@ export class Activity extends GObject.Object {
         });
     }
 
-    // Changes wait for the first read and for each other. A save is never
-    // cancelled: half a file would lose the whole list.
+    // Changes wait for the first read and for each other.
+    // A save is never cancelled, half a file would lose the whole list.
     #change(edit) {
         this.#writes = this.#writes.then(async () => {
             if (this.#closed)

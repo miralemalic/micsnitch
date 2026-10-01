@@ -8,8 +8,8 @@ out=${OUT:-/out}
 
 gjs -m tests/extension.mjs
 
-# Services started on demand, like the settings store, must share our runtime
-# folder, or the Shell never hears about saved settings.
+# Services started on demand, like the settings store, must share our runtime folder,
+# or the Shell never hears about saved settings.
 gdbus call --session --dest org.freedesktop.DBus --object-path /org/freedesktop/DBus \
     --method org.freedesktop.DBus.UpdateActivationEnvironment \
     "{'XDG_RUNTIME_DIR': '$XDG_RUNTIME_DIR'}" >/dev/null
@@ -26,8 +26,8 @@ gsettings set org.gnome.shell enabled-extensions \
     "${installed%]}, 'micsnitch-test-helper@miralemalic']"
 
 feed_fake_mic
-# GNOME Shell won't start without a system bus, even an empty one, and it
-# looks for logind when this folder exists. Containers don't run logind.
+# GNOME Shell won't start without a system bus, even an empty one.
+# It also looks for logind when this folder exists, and containers don't run logind.
 mkdir -p /run/dbus
 dbus-daemon --system --fork
 rm -rf /run/systemd/seats
@@ -166,7 +166,7 @@ stop_first_recording
 expect_denied 'both of its recordings can be stopped' "$repeat1"
 expect_denied 'and both end' "$repeat2"
 
-# Enter the real unlock-dialog mode: GNOME must disable this user-only extension.
+# Lock the screen for real. GNOME should switch the popup off.
 shell "global._micsnitchTestIndicator = $obj._indicator; Main.sessionMode.pushMode('unlock-dialog')" >/dev/null
 wait_shell "$ext.state" 2
 check 'the extension is disabled in unlock-dialog mode' "$(shell "$ext.state")" 2

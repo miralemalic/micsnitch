@@ -1,6 +1,6 @@
 #!/bin/bash
-# Checks that the harness cannot turn missing evidence or a failed container
-# into a passing policy result. No audio services are started.
+# Makes sure a broken recording or a crashed container can't pass for a success.
+# No audio gets started here.
 set -u
 cd "$(dirname "$0")/.." || exit 1
 . tests/lib.sh
@@ -28,9 +28,9 @@ exit "${RIG_EXIT:-42}"
 CONTAINER
 chmod +x "$scratch/bin/pw-record" "$scratch/bin/podman"
 PATH=$scratch/bin:$PATH record "$scratch/test.wav"
-check 'recorder failures are not swallowed' "$?" 7
+check 'a failing recorder shows up as a fail' "$?" 7
 PATH=$scratch/bin:$PATH RIG_EXIT=42 tests/matrix.sh fedora44 >/dev/null
-check 'a failing container cannot pass on its printed summary' "$?" 1
+check 'a crashed container counts as a fail' "$?" 1
 PATH=$scratch/bin:$PATH RIG_EXIT=0 RIG_RESULT='99 passed, 1 failed' tests/matrix.sh fedora44 >/dev/null
 check 'a failing summary is not ignored' "$?" 1
 PATH=$scratch/bin:$PATH RIG_EXIT=0 tests/matrix.sh fedora44 >/dev/null

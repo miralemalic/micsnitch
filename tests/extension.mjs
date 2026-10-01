@@ -1,4 +1,4 @@
-// Check app identity, private activity storage and the metadata connection.
+// Tests for the parts that don't need GNOME Shell
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import System from 'system';
@@ -8,8 +8,8 @@ function assert(condition, message) {
         throw new Error(message);
 }
 
-// GLib chooses the runtime directory at startup. Run in a fresh process so
-// this test never reads or writes the desktop's real activity file.
+// GLib picks the runtime folder at startup, so run in a fresh process.
+// This test must never touch the desktop's real activity file.
 if (!GLib.getenv('MICSNITCH_EXTENSION_TEST_RUNTIME')) {
     const temporary = GLib.dir_make_tmp('micsnitch-extension-XXXXXX');
     const launcher = new Gio.SubprocessLauncher({
@@ -45,10 +45,10 @@ assert(chat.name === 'Discord', 'An app is shown by the name it gives');
 
 // Real Electron and Qt WebEngine apps all call themselves "Chromium input"
 const chromium = await identify({app: 'Chromium input', binary: 'Discord'});
-const claude = await identify({app: 'Chromium input', binary: 'Claude'});
-assert(chromium.name === 'Discord' && claude.name === 'Claude',
+const signal = await identify({app: 'Chromium input', binary: 'Signal'});
+assert(chromium.name === 'Discord' && signal.name === 'Signal',
     'A Chromium-based app is shown by its program name');
-assert(chromium.key !== claude.key, 'Chromium-based apps must not share a rule');
+assert(chromium.key !== signal.key, 'Chromium-based apps must not share a rule');
 const zapzap = await identify({app: 'Chromium input', binary: 'QtWebEngineProcess',
     flatpak: 'com.rtosta.zapzap'});
 assert(zapzap.key === 'app:com.rtosta.zapzap', 'A Flatpak app is remembered by its app ID');

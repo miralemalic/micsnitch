@@ -1,8 +1,8 @@
 // SPDX-FileCopyrightText: 2026 miralemalic
 // SPDX-License-Identifier: MIT
 
-// WirePlumber and the popup talk through the "micsnitch" metadata, and
-// pw-metadata does the talking for us.
+// WirePlumber and the popup talk through the "micsnitch" metadata,
+// and pw-metadata does the talking for us.
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import GObject from 'gi://GObject';

@@ -14,7 +14,7 @@ if [ "${MICSNITCH:-1}" = 1 ]; then
     /src/tools/install.sh --no-restart --no-extension
 fi
 
-# Only the private test stack gets the privileged link fixture.
+# The link fixture is for tests only, never a real install
 install -Dm644 /src/tests/containers/link-fixture.lua "$data/wireplumber/scripts/link-fixture.lua"
 install -Dm644 /src/tests/containers/link-fixture.conf "$cfg/wireplumber/wireplumber.conf.d/link-fixture.conf"
 

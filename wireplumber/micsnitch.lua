@@ -3,11 +3,11 @@
 -- SPDX-FileCopyrightText: 2026 miralemalic
 -- SPDX-License-Identifier: MIT
 --
--- Audio only flows into an app from something the app doesn't own after
--- you've said yes. Such links are held back before WirePlumber makes them,
--- the request goes up on the "micsnitch" metadata and the popup answers
--- there. Apps also lose the link-factory, so they can't wire things up on
--- their own, and a link that slips through anyway is cut.
+-- Audio only flows into an app from something it doesn't own after you've said yes.
+-- Such links are held back before WirePlumber makes them. The request goes up on
+-- the "micsnitch" metadata and the popup answers there.
+-- Apps also lose the link-factory, so they can't wire things up on their own,
+-- and a link that slips through anyway is cut.
 
 lutils = require ("linking-utils")
 log = Log.open_topic ("s-micsnitch")
@@ -33,8 +33,8 @@ nodes_om = ObjectManager { Interest { type = "node" } }
 clients_om = ObjectManager { Interest { type = "client" } }
 links_om = ObjectManager { Interest { type = "link" } }
 
--- PipeWire keeps the metadata itself, so the popup's end of it survives a
--- WirePlumber restart. One of the same name made by an app doesn't count.
+-- PipeWire keeps the metadata itself, so it survives a WirePlumber restart.
+-- One with the same name made by an app doesn't count.
 metadata_om = ObjectManager {
   Interest {
     type = "metadata",
@@ -66,8 +66,9 @@ function post_json (id, key, value)
   end
 end
 
--- Connections of the PipeWire daemon itself and of WirePlumber, told apart
--- by pid, which the kernel vouches for. nil while that can't be told yet.
+-- Connections of the PipeWire daemon and of WirePlumber itself,
+-- told apart by pid, which the kernel vouches for.
+-- nil while that can't be told yet.
 function is_system (client)
   local pid = client.properties["pipewire.sec.pid"]
   local own_id = Core.get_own_bound_id ()
@@ -151,8 +152,8 @@ function refuse (id, node)
   node:request_destroy ()
 end
 
--- Nobody answers while the popup is off, so don't keep apps hanging. A
--- locked screen is different: those requests wait for the unlock.
+-- Nobody answers while the popup is off, so don't keep apps hanging.
+-- A locked screen is different, those requests wait for the unlock.
 function expire_later (id)
   local p = pending[id]
   if p.timeout then
@@ -194,8 +195,8 @@ function ask (to, from)
   end
 end
 
--- Answers look like "allow 42 mic", naming the serial and kind they're for,
--- so an old answer can't wave a stream through after it moved to the mic.
+-- Answers look like "allow 42 mic". The serial and kind stop an old answer
+-- from letting a stream through after it switched to the mic.
 function answer (id, value)
   local p = pending[id]
   local verdict, for_serial, kind = value:match ("^(%a+) (%d+) (%a+)$")
@@ -307,8 +308,9 @@ nodes_om:connect ("object-removed", function (_, node)
   post (id, "micsnitch.recording", nil)
 end)
 
--- Hold links WirePlumber is about to make. The receiving end is the stream
--- when recording and the target when playing into an app's own sink.
+-- Hold links WirePlumber is about to make.
+-- The receiving end is the stream when recording, and the target when
+-- something plays into an app's own sink.
 SimpleEventHook {
   name = "micsnitch/gate",
   after = { "linking/find-defined-target", "linking/find-filter-target",
@@ -341,8 +343,8 @@ SimpleEventHook {
   end
 }:register ()
 
--- What's recording right now: one row per stream with sound actually
--- flowing, not one per channel.
+-- What's recording right now. One row per stream with sound actually flowing,
+-- not one per channel.
 function update_recordings ()
   local current = {}
   for link in links_om:iterate () do
@@ -379,8 +381,7 @@ function schedule_recordings ()
   end)
 end
 
--- Anything an app linked on its own, e.g. in the moment before its
--- permissions were set.
+-- Anything an app linked on its own, e.g. in the moment before its permissions were set.
 links_om:connect ("object-added", function (_, link)
   local p = link.properties
   local to = lookup (nodes_om, p["link.input.node"])
@@ -401,9 +402,10 @@ wiring = Interest {
 }
 
 if PermissionManager then
-  -- WirePlumber 0.5.15+. The stock permission managers are shared with
-  -- WirePlumber itself, so apps get a copy of theirs instead: same default,
-  -- minus the link-factory. Portal and snap clients keep their own rules.
+  -- WirePlumber 0.5.15+.
+  -- The stock permission managers are shared with WirePlumber itself, so apps get
+  -- a copy of theirs instead: same default, minus the link-factory.
+  -- Portal and snap clients keep their own rules.
   managers = {}
 
   function manager_for (client, access)
@@ -447,8 +449,8 @@ if PermissionManager then
     end
   }:register ()
 else
-  -- Older WirePlumber sets an "any" default per client; a per-object entry
-  -- for the link-factory survives it.
+  -- Older WirePlumber sets an "any" default per client.
+  -- A per-object entry for the link-factory survives it.
   factories_om = ObjectManager { wiring }
 
   function unwire (client)
@@ -481,14 +483,15 @@ clients_om:connect ("object-removed", function (_, client)
   end
 end)
 
--- One after the other, so that nothing is judged before the nodes and
--- clients it involves are known.
+-- One after the other, so nothing is judged
+-- before the nodes and clients it involves are known.
 nodes_om:connect ("installed", function ()
   clients_om:activate ()
 end)
 clients_om:connect ("installed", function (om)
-  -- Clients that were there before us. One whose access isn't known yet is
-  -- left to the select-access hook instead of getting everything.
+  -- Clients that were there before us.
+  -- One whose access isn't known yet is left to the select-access hook
+  -- instead of getting everything.
   for client in om:iterate () do
     unwire (client)
   end

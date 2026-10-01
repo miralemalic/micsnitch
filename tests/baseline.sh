@@ -13,7 +13,7 @@ check "sink monitor records the tone" "$(sound_of /tmp/monitor.wav)" sound
 # shellcheck disable=SC2119
 check "without MicSnitch apps can wire ports" "$(self_wire)" linked
 
-# An injected link must really exist in an unprotected stack.
+# Without MicSnitch the sneaked-in link really is there
 start_app
 read -r on op _ < <(port_of fake-mic output)
 read -r inn ip _ < <(port_of evil input)

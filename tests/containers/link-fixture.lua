@@ -1,5 +1,5 @@
--- This test-only helper creates links as WirePlumber, bypassing the client
--- permission check so the policy's second line of defence gets exercised.
+-- Test only. Makes a link as WirePlumber itself, which no app can do,
+-- so we can check the gate cuts links it never approved.
 links = {}
 om = ObjectManager {
   Interest { type = "metadata", Constraint { "metadata.name", "=", "default" } }

@@ -1,6 +1,6 @@
 #!/bin/bash
-# Runs the real extension in a hidden GNOME Shell inside a test container, with
-# a private audio stack. Your desktop is never involved.
+# Runs the real extension in a hidden GNOME Shell inside a test container,
+# with a private audio stack. Your desktop is never involved.
 #   tests/popup.sh fedora44 [OUTDIR]
 # debian13 has GNOME 48, fedora43 49, fedora44 50 and fedora45 51.
 # Results and the Shell's log end up in OUTDIR (default: shots/DISTRO).
