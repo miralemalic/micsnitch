@@ -67,7 +67,8 @@ remembered rule answers it. Stop does not erase saved rules; edit those in
 the extension's preferences.
 
 The menu also shows the last 10 decisions observed while the extension is
-enabled, including recordings stopped from the menu. The list is saved privately
+enabled, including recordings stopped from the menu, and the extension's
+settings show the last 50. The list is saved privately
 in `$XDG_RUNTIME_DIR/micsnitch-activity.json`, and contains no audio. It survives
 lock/unlock and audio-service restarts, and resets for a new login. Restarting
 GNOME Shell may also reset it. No decision history is published through

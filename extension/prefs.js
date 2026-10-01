@@ -10,6 +10,8 @@ import Gtk from 'gi://Gtk';
 
 import {ExtensionPreferences, gettext as _} from 'resource:///org/gnome/Shell/Extensions/js/extensions/prefs.js';
 
+import {describeEvent} from './core/activity.js';
+
 function nameOf(key) {
     const [kind, value] = key.split(/:(.*)/);
     if (kind === 'exe')
@@ -78,6 +80,30 @@ export default class MicSnitchPreferences extends ExtensionPreferences {
         };
         const rulesSignal = settings.connect('changed::rules', sync);
         sync();
+
+        const recent = new Adw.PreferencesGroup({
+            title: _('Recent Activity'),
+            description: _('Decisions since you logged in, newest first. No audio is kept.'),
+        });
+        page.add(recent);
+
+        // The popup keeps the list in this login's runtime folder
+        let events = [];
+        try {
+            const path = GLib.build_filenamev([GLib.get_user_runtime_dir(), 'micsnitch-activity.json']);
+            events = JSON.parse(new TextDecoder().decode(GLib.file_get_contents(path)[1])).events;
+        } catch {
+            // Nothing decided yet this login
+        }
+        for (const event of events.slice().reverse()) {
+            recent.add(new Adw.ActionRow({
+                title: event.app || _('Unnamed app'),
+                subtitle: [describeEvent(event, _), event.source].filter(Boolean).join(' · '),
+                use_markup: false,
+            }));
+        }
+        if (!events.length)
+            recent.add(new Adw.ActionRow({title: _('None yet')}));
 
         window.connect('close-request', () => {
             settings.disconnect(rulesSignal);

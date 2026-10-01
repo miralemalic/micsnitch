@@ -192,6 +192,21 @@ sleep 1
 shell "$obj._dialog._respond(false)" >/dev/null
 expect_denied 'the restored popup can deny its pending recorder' "$disabled"
 check 'the extension remains protected' "$(shell "$obj._channel.active")" true
+shell "Main.extensionManager.openExtensionPrefs('micsnitch@miralemalic', '', {})" >/dev/null
+wait_shell "global.get_window_actors().some(a => a.meta_window.title === 'MicSnitch')" true
+check 'the settings window opens' \
+    "$(shell "global.get_window_actors().some(a => a.meta_window.title === 'MicSnitch')")" true
+# GNOME's settings code needs a library from GNOME Shell's private folder
+shew=$(dirname "$(find /usr/lib* -name 'Shew-*.typelib' -print -quit)")
+private=$(dirname "$(find /usr/lib* -name 'libshew-*.so*' -print -quit)")
+rows=$(LC_ALL=C.UTF-8 WAYLAND_DISPLAY=wayland-0 GI_TYPELIB_PATH=$shew LD_LIBRARY_PATH=$private \
+    gjs -m tests/prefs.mjs \
+    "$HOME/.local/share/gnome-shell/extensions/micsnitch@miralemalic" 2>"$out/prefs.log")
+printf '%s\n' "$rows" >"$out/prefs.txt"
+check 'settings list the remembered app' \
+    "$(grep -c '^electron / ChatGPT | Microphone · Always allowed$' <<<"$rows")" 1
+check 'settings list recent decisions, newest first' \
+    "$(grep -E ' · (Allowed|Denied|Stopped) · ' <<<"$rows" | head -1 | cut -d' ' -f1)" Unremembered
 check 'GNOME Shell logged no errors from MicSnitch' \
     "$(grep -A25 -E 'JS ERROR|JS WARNING|Gjs-CRITICAL' "$out/shell.log" | grep -ci micsnitch)" 0
 echo 'popup checks passed'

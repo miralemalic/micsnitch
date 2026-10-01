@@ -14,7 +14,7 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 import {QuickMenuToggle, SystemIndicator} from 'resource:///org/gnome/shell/ui/quickSettings.js';
 
-import {Activity} from './core/activity.js';
+import {Activity, describeEvent} from './core/activity.js';
 import {Channel} from './core/channel.js';
 import {identify} from './core/identity.js';
 import {RequestDialog} from './dialog.js';
@@ -22,18 +22,11 @@ import {RequestDialog} from './dialog.js';
 // Chromium-based apps reopen the mic several times for one click, so an
 // answer also covers the same app's requests for a little while after.
 const FOLLOW_UP_US = 30 * GLib.USEC_PER_SEC;
+// The menu shows this many recent decisions; settings shows them all
+const MENU_EVENTS = 10;
 
 function kindName(kind) {
     return kind === 'mic' ? _('Microphone') : _('System audio');
-}
-
-function activityDetail(event) {
-    const action = {allow: _('Allowed'), deny: _('Denied'), stop: _('Stopped')}[event.action];
-    const reason = {
-        remembered: _('remembered rule'), system: _('system audio setting'),
-    }[event.reason];
-    return [GLib.DateTime.new_from_unix_local(event.time).format('%H:%M'),
-        action, kindName(event.kind), reason].filter(Boolean).join(' · ');
 }
 
 const MicToggle = GObject.registerClass(
@@ -106,11 +99,11 @@ class MicToggle extends QuickMenuToggle {
         }
 
         this._recent.removeAll();
-        for (const event of this._activity.events.slice().reverse()) {
+        for (const event of this._activity.events.slice(-MENU_EVENTS).reverse()) {
             const item = new PopupMenu.PopupBaseMenuItem({reactive: false, can_focus: false});
             const labels = new St.BoxLayout({orientation: Clutter.Orientation.VERTICAL});
             labels.add_child(new St.Label({text: event.app || _('Unnamed app')}));
-            labels.add_child(new St.Label({text: activityDetail(event), style_class: 'micsnitch-detail'}));
+            labels.add_child(new St.Label({text: describeEvent(event, _), style_class: 'micsnitch-detail'}));
             item.add_child(labels);
             this._recent.addMenuItem(item);
         }

@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 miralemalic
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Keep the last few choices made by the popup in this login's runtime folder.
+// Keep the latest choices made by the popup in this login's runtime folder.
 // The popup keeps this local instead of publishing it on PipeWire metadata.
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
@@ -10,7 +10,19 @@ import GObject from 'gi://GObject';
 Gio._promisify(Gio.File.prototype, 'load_contents_async');
 Gio._promisify(Gio.File.prototype, 'replace_contents_bytes_async', 'replace_contents_finish');
 
-const LIMIT = 10;
+const LIMIT = 50;
+
+// "14:05 · Allowed · Microphone · remembered rule", for the menu and settings.
+// Each side passes its own gettext.
+export function describeEvent(event, _) {
+    const action = {allow: _('Allowed'), deny: _('Denied'), stop: _('Stopped')}[event.action];
+    const kind = event.kind === 'mic' ? _('Microphone') : _('System audio');
+    const reason = {
+        remembered: _('remembered rule'), system: _('system audio setting'),
+    }[event.reason];
+    return [GLib.DateTime.new_from_unix_local(event.time).format('%H:%M'),
+        action, kind, reason].filter(Boolean).join(' · ');
+}
 
 export class Activity extends GObject.Object {
     static [GObject.signals] = {'changed': {}};

@@ -56,21 +56,21 @@ print('PASS: unverified names have separate rules and matching labels');
 
 const activity = new Activity('first-login');
 await activity.loaded;
-for (let i = 0; i < 25; i++) {
+for (let i = 0; i < 60; i++) {
     await activity.add({time: Math.floor(GLib.get_real_time() / 1e6), app: `Test app ${i}`,
         kind: 'mic', action: 'allow', reason: 'once'});
 }
 await activity.close();
 const restored = new Activity('first-login');
 await restored.loaded;
-assert(restored.events.length === 10 && restored.events[0].app === 'Test app 15' &&
-    restored.events.at(-1).app === 'Test app 24',
-    'Activity must retain the latest 10 decisions in the order they happened');
+assert(restored.events.length === 50 && restored.events[0].app === 'Test app 10' &&
+    restored.events.at(-1).app === 'Test app 59',
+    'Activity must retain the latest 50 decisions in the order they happened');
 await restored.close();
 const cache = Gio.File.new_for_path(`${directory}/micsnitch-activity.json`);
 const [, info] = GLib.file_get_contents(cache.get_path());
 const stored = JSON.parse(new TextDecoder().decode(info));
-assert(stored.session === 'first-login' && stored.events.length === 10,
+assert(stored.session === 'first-login' && stored.events.length === 50,
     'Activity must be stored locally as a small list for this login');
 assert((cache.query_info('unix::mode', Gio.FileQueryInfoFlags.NONE, null)
     .get_attribute_uint32('unix::mode') & 0o777) === 0o600,
@@ -79,7 +79,7 @@ const nextLogin = new Activity('next-login');
 await nextLogin.loaded;
 assert(nextLogin.events.length === 0, 'A different login must not show an old activity file');
 await nextLogin.close();
-print('PASS: private activity keeps 10 decisions and survives extension reloads');
+print('PASS: private activity keeps 50 decisions and survives extension reloads');
 
 GLib.file_set_contents(`${bin}/pw-metadata`, `#!/bin/sh
 if [ "$1" != -m ]; then
