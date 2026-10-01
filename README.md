@@ -13,10 +13,14 @@ Built-in Microphone
                                   [ Deny ]  [ Allow ]
 ```
 
-## Install
+## Works on
 
-You need Linux with PipeWire **1.2 or newer** and WirePlumber **0.5.8 or
-newer**. The popup supports **GNOME 50** and uses `pw-metadata` and `stdbuf`.
+GNOME **48 to 51** with PipeWire **1.2 or newer** and WirePlumber **0.5.8 or
+newer**: Fedora 43, 44 and 45, Ubuntu 26.04, Debian 13, Arch and the like.
+Ubuntu 24.04, Debian 12 and Linux Mint 22 ship WirePlumber 0.4, which works
+differently and isn't supported. Other desktops have no popup yet.
+
+## Install
 
 ```sh
 git clone https://github.com/miralemalic/micsnitch
@@ -25,11 +29,17 @@ tools/install.sh
 ```
 
 Everything is installed for your user; no root access is needed. Audio
-services restart briefly. Log out and back in once to load the popup.
+restarts for a second, so don't do it in the middle of a call. Then log out
+and back in once to load the popup.
 
-`--no-restart` installs the files without restarting audio. Use
-`--no-extension` to install just the policy. On other desktops or unsupported
-GNOME versions, the installer skips the popup automatically.
+To update, run `git pull` and `tools/install.sh` again. MicSnitch isn't on
+extensions.gnome.org: the site can only install the popup, and the popup does
+nothing without the policy.
+
+`--no-restart` installs the files without restarting audio. Without a
+supported GNOME the installer stops, because nothing could be allowed and every
+app would be refused the microphone. `--no-extension` installs the policy alone
+anyway.
 
 Without a popup, requests wait for 15 seconds and are then denied. While the
 screen is locked, requests wait until you unlock it; the controls and consent
@@ -42,8 +52,7 @@ tools/uninstall.sh
 
 The uninstaller removes the policy, popup and recent activity, then restarts
 audio. It also accepts `--no-restart`. Saved permission preferences remain
-in GSettings. WirePlumber 0.4, shipped by Ubuntu 24.04 and Debian 12, is not
-supported.
+in GSettings.
 
 ## Recording controls
 
@@ -100,14 +109,19 @@ from routing audio around the policy.
 
 ## Tests
 
-The tests use private containers with a fake microphone and a separate
-GNOME Shell, so they do not use your audio devices. They require Podman.
+The tests run in containers, each with its own PipeWire, a fake microphone
+and, for the popup, a hidden GNOME Shell. They never touch your desktop or
+your audio devices. They need Podman.
 
 ```sh
-tests/matrix.sh
-tests/container.sh fedora44 tests/run.sh
-tests/popup.sh shots/
+tests/matrix.sh                          # the policy on every distro
+tests/container.sh fedora44 tests/run.sh # the policy on one
+tests/popup.sh fedora44                  # the popup on GNOME 50
+tests/harness.sh                         # the test runner itself
 ```
+
+For the popup, `debian13` has GNOME 48, `fedora43` 49, `fedora44` 50 and
+`fedora45` 51. The hidden Shell's log ends up in `shots/`.
 
 ## License
 

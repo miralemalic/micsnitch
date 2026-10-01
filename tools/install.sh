@@ -36,17 +36,19 @@ for cmd in pipewire wireplumber; do need "$cmd"; done
 check_version pipewire 1 2 0
 check_version wireplumber 0 5 8
 
-if [ "$extension" = 1 ] && {
-    ! command -v gnome-extensions >/dev/null ||
-    ! command -v gnome-shell >/dev/null ||
-    { [ -n "${XDG_CURRENT_DESKTOP:-}" ] && [[ ${XDG_CURRENT_DESKTOP,,} != *gnome* ]]; }
-}; then
-    echo "No GNOME session found; installing the policy without a popup."
-    extension=0
-fi
-if [ "$extension" = 1 ] && ! [[ $(gnome-shell --version) =~ (^|[[:space:]])50([.[:space:]]|$) ]]; then
-    echo "The popup supports GNOME 50; installing the policy without a popup."
-    extension=0
+# Without the popup nothing can be allowed, so every app would lose the mic.
+# Only go ahead without it when asked to.
+if [ "$extension" = 1 ]; then
+    shell=$(gnome-shell --version 2>/dev/null || true)   # "GNOME Shell 50.5"
+    shell=${shell##* }
+    tested=$(sed -n '/shell-version/,/]/p' extension/metadata.json | grep -o '[0-9]\+')
+    if ! command -v gnome-extensions >/dev/null || ! grep -qx "${shell%%.*}" <<<"$tested" ||
+        [[ -n ${XDG_CURRENT_DESKTOP:-} && ${XDG_CURRENT_DESKTOP,,} != *gnome* ]]; then
+        echo "The MicSnitch popup needs GNOME $(paste -sd/ <<<"$tested")." >&2
+        echo "Without it every app would be refused the microphone. If that's what" >&2
+        echo "you want, run this again with --no-extension." >&2
+        exit 1
+    fi
 fi
 
 if [ "$extension" = 1 ]; then

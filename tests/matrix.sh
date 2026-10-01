@@ -3,7 +3,7 @@
 cd "$(dirname "$0")/.." || exit 1
 status=0
 distros=("$@")
-[ $# -gt 0 ] || distros=(fedora44 fedora43 ubuntu2604 debian13 arch)
+[ $# -gt 0 ] || distros=(fedora45 fedora44 fedora43 ubuntu2604 debian13 arch)
 for distro in "${distros[@]}"; do
     result=$(tests/container.sh "$distro" bash -c \
         'wireplumber --version; tests/run.sh' 2>&1)

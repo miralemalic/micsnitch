@@ -3,7 +3,10 @@
     "name": "MicSnitch",
     "description": "Asks before any app records your microphone or system audio.\n\nNeeds the MicSnitch policy for WirePlumber, see the homepage for how to install it.",
     "shell-version": [
-        "50"
+        "48",
+        "49",
+        "50",
+        "51"
     ],
     "url": "https://github.com/miralemalic/micsnitch",
     "settings-schema": "org.gnome.shell.extensions.micsnitch",
