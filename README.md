@@ -98,9 +98,11 @@ in a sandbox without audio access.
 Native PipeWire clients are identified using kernel-supplied process
 information. For scripts, the program may be an interpreter such as python3.
 PulseAudio clients supply their own names, which cannot be verified. Their
-remembered rules use the app name shown in the checkbox, so Slack and ChatGPT
-do not share a rule merely because both use `electron`. An app can still
-deliberately claim another app's name; the popup explains this limitation.
+remembered rules go by both the program and the name it gives, so Slack and
+ChatGPT don't share a rule just because both run on `electron`. Apps built on
+Chromium all call themselves "Chromium input", so those are shown by their
+program name. An app can still deliberately claim another app's name; the
+popup explains this limitation.
 
 MicSnitch removes the link-factory from ordinary clients. Patchbays such as
 qpwgraph and Helvum, and JACK apps that make their own links, cannot freely

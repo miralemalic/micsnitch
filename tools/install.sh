@@ -70,7 +70,19 @@ for conf in pipewire.conf.d pipewire-pulse.conf.d; do
 done
 
 if [ "$extension" = 1 ]; then
-    gnome-extensions enable "$uuid" 2>/dev/null || true
+    # GNOME only learns about a new extension at the next login, so until then
+    # it can't enable it. Put it on the list for that login instead.
+    if ! gnome-extensions enable "$uuid" 2>/dev/null; then
+        enabled=$(gsettings get org.gnome.shell enabled-extensions)
+        case $enabled in
+            *"'$uuid'"*) ;;
+            "@as []") gsettings set org.gnome.shell enabled-extensions "['$uuid']" ;;
+            *) gsettings set org.gnome.shell enabled-extensions "${enabled%]}, '$uuid']" ;;
+        esac
+    fi
+    if [ "$(gsettings get org.gnome.shell disable-user-extensions)" = true ]; then
+        echo "Extensions are switched off in GNOME; turn them on in the Extensions app." >&2
+    fi
 fi
 if [ "$restart" = 1 ]; then
     systemctl --user restart pipewire pipewire-pulse wireplumber

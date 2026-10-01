@@ -70,11 +70,16 @@ export async function identify(request, cancellable = null) {
         return {...app, program};
     }
 
-    // A claimed PID can help find an icon, but cannot establish identity.
+    // Every Chromium-based app (Electron, Qt WebEngine) calls itself
+    // "Chromium input", so there the program name says more. Rules go by
+    // both, so apps sharing a program like electron don't share one either.
+    const named = request.app?.startsWith('Chromium') ? null : request.app;
+    const claim = flatpak ?? ([binary, named].filter(Boolean).join(' / ') || null);
+
+    // A claimed PID can help find a name and icon, but cannot establish identity.
     const mine = request.pid && binary &&
         (await read(`/proc/${request.pid}/comm`, cancellable)).trim() === binary.slice(0, 15);
     const info = desktopApp(flatpak) ?? (mine ? await appOfPid(request.pid, cancellable) : null);
-    const claim = request.app || flatpak || binary;
-    return {...describe(claim ? `app:${claim}` : null, info, claim, binary, false),
-        name: claim, claim};
+    const app = describe(claim && `app:${claim}`, info, named ?? binary ?? flatpak, binary, false);
+    return {...app, claim: app.name};
 }

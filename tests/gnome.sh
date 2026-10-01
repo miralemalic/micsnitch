@@ -8,15 +8,6 @@ out=${OUT:-/out}
 
 gjs -m tests/extension.mjs
 
-pack=$(mktemp -d)
-(cd extension && gnome-extensions pack -q --force --out-dir="$pack" \
-    --extra-source=core --extra-source=dialog.js .)
-(cd tests/shell-helper && gnome-extensions pack -q --force --out-dir="$pack" .)
-for zip in "$pack"/*.zip; do
-    gnome-extensions install --force "$zip"
-done
-glib-compile-schemas "$HOME/.local/share/gnome-shell/extensions/micsnitch@miralemalic/schemas"
-
 # Services started on demand, like the settings store, must share our runtime
 # folder, or the Shell never hears about saved settings.
 gdbus call --session --dest org.freedesktop.DBus --object-path /org/freedesktop/DBus \
@@ -24,8 +15,15 @@ gdbus call --session --dest org.freedesktop.DBus --object-path /org/freedesktop/
     "{'XDG_RUNTIME_DIR': '$XDG_RUNTIME_DIR'}" >/dev/null
 gsettings set org.gnome.shell disable-user-extensions false
 gsettings set org.gnome.shell welcome-dialog-last-shown-version '999'
+
+# Install the popup the way people do, while no Shell knows about it yet.
+tools/install.sh --no-restart >/dev/null
+installed=$(gsettings get org.gnome.shell enabled-extensions)
+pack=$(mktemp -d)
+(cd tests/shell-helper && gnome-extensions pack -q --force --out-dir="$pack" .)
+gnome-extensions install --force "$pack"/*.zip
 gsettings set org.gnome.shell enabled-extensions \
-    '["micsnitch-test-helper@miralemalic", "micsnitch@miralemalic"]'
+    "${installed%]}, 'micsnitch-test-helper@miralemalic']"
 
 feed_fake_mic
 # GNOME Shell won't start without a system bus, even an empty one, and it
@@ -88,6 +86,8 @@ toggle="$obj._indicator.quickSettingsItems[0]"
 wait_shell "$ext.state" 1
 wait_shell "$obj._channel.active" true
 check 'the extension starts without an error' "$(shell "$ext.error ?? ''")" ''
+check 'the installer switched the popup on for the next login' \
+    "$(grep -c "'micsnitch@miralemalic'" <<<"$installed")" 1
 recorder ChatGPT /tmp/chatgpt.wav >"$out/chatgpt.log" 2>&1 & first=$!
 wait_shell "$obj._dialog != null" true
 recorder Slack /tmp/slack.wav >"$out/slack.log" 2>&1 & second=$!
@@ -100,7 +100,7 @@ sleep 1
 shell "$obj._dialog._remember.checked = true; $obj._dialog._respond(true)" >/dev/null
 wait_shell "$obj._queue.get($obj._dialog?.requestId)?.app.name" Slack
 check 'remembering ChatGPT does not answer another app sharing its binary' \
-    "$(shell "$obj._settings.get_value('rules').deepUnpack()['mic:app:Slack'] ?? ''")" ''
+    "$(shell "Object.keys($obj._settings.get_value('rules').deepUnpack())")" '["mic:app:electron / ChatGPT"]'
 sleep 1
 shell "$obj._dialog._respond(false)" >/dev/null
 expect_denied 'Deny stops Slack with an error' "$second"

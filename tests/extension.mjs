@@ -40,8 +40,18 @@ const chat = await identify({app: 'ChatGPT', binary: 'electron'});
 const slack = await identify({app: 'Slack', binary: 'electron'});
 assert(chat.key !== slack.key, 'Apps sharing an executable must not share an unverified rule');
 for (const app of [chat, slack])
-    assert(app.key === `app:${app.claim}` && app.name === app.claim,
-        'The remembered claim must be the name shown to the user');
+    assert(app.claim === app.name, 'The checkbox must name what the popup shows');
+assert(chat.name === 'ChatGPT', 'An app is shown by the name it gives');
+
+// Real Electron and Qt WebEngine apps all call themselves "Chromium input"
+const chromium = await identify({app: 'Chromium input', binary: 'ChatGPT'});
+const claude = await identify({app: 'Chromium input', binary: 'Claude'});
+assert(chromium.name === 'ChatGPT' && claude.name === 'Claude',
+    'A Chromium-based app is shown by its program name');
+assert(chromium.key !== claude.key, 'Chromium-based apps must not share a rule');
+const zapzap = await identify({app: 'Chromium input', binary: 'QtWebEngineProcess',
+    flatpak: 'com.rtosta.zapzap'});
+assert(zapzap.key === 'app:com.rtosta.zapzap', 'A Flatpak app is remembered by its app ID');
 print('PASS: unverified names have separate rules and matching labels');
 
 const activity = new Activity('first-login');
