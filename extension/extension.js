@@ -8,7 +8,7 @@ import GLib from 'gi://GLib';
 import GObject from 'gi://GObject';
 import St from 'gi://St';
 
-import {Extension, gettext as _, ngettext} from 'resource:///org/gnome/shell/extensions/extension.js';
+import {Extension, gettext as _} from 'resource:///org/gnome/shell/extensions/extension.js';
 
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
@@ -32,7 +32,7 @@ function kindName(kind) {
 const MicToggle = GObject.registerClass(
 class MicToggle extends QuickMenuToggle {
     _init(privacy, channel, activity, preferences) {
-        super._init({title: _('Microphone'), toggleMode: true});
+        super._init({title: _('MicSnitch'), toggleMode: true});
         this._channel = channel;
         this._activity = activity;
         privacy.bind('disable-microphone', this, 'checked',
@@ -58,17 +58,13 @@ class MicToggle extends QuickMenuToggle {
     }
 
     _sync() {
-        this.iconName = this.checked
-            ? 'audio-input-microphone-symbolic' : 'microphone-disabled-symbolic';
+        // A warning sign when the policy isn't running, so nothing is guarded
         if (!this._channel.active)
-            this.subtitle = _('Not protected');
-        else if (!this.checked)
-            this.subtitle = _('Off for all apps');
-        else if (this._channel.recordings.size)
-            this.subtitle = ngettext('%d recording', '%d recordings',
-                this._channel.recordings.size).format(this._channel.recordings.size);
+            this.iconName = 'dialog-warning-symbolic';
+        else if (this.checked)
+            this.iconName = 'audio-input-microphone-symbolic';
         else
-            this.subtitle = _('Apps ask first');
+            this.iconName = 'microphone-disabled-symbolic';
 
         this._recordings.removeAll();
         for (const [id, recording] of this._channel.recordings) {

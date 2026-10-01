@@ -56,10 +56,11 @@ in GSettings.
 
 ## Recording controls
 
-Open the Microphone menu in GNOME Quick Settings to see who is recording,
+Open the MicSnitch menu in GNOME Quick Settings to see who is recording,
 what they are recording, and the source. Each recording has a **Stop** button.
 Only active audio connections appear; allowing a request alone does not count
-as recording. The microphone switch stops all recordings and blocks new ones.
+as recording. Switching the MicSnitch tile off stops all recordings and blocks
+new ones. If the policy isn't running, the tile shows a warning sign.
 
 Stop disconnects that recording and removes its approval. Other recordings
 continue. If the app starts another recording, it asks again unless a
