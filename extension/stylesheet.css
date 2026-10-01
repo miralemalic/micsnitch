@@ -1,3 +1,14 @@
 .micsnitch-detail {
   font-size: smaller;
 }
+
+/* Some extensions paint every icon in the accent colour, which shows the
+   tick even when the box is off. These win on specificity and otherwise
+   say what GNOME's own stylesheet says. */
+.check-box.micsnitch-remember StIcon {
+  color: transparent;
+}
+
+.check-box.micsnitch-remember:checked StIcon {
+  color: -st-accent-fg-color;
+}

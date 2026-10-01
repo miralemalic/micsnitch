@@ -19,6 +19,10 @@ import {Channel} from './core/channel.js';
 import {identify} from './core/identity.js';
 import {RequestDialog} from './dialog.js';
 
+// Chromium-based apps reopen the mic several times for one click, so an
+// answer also covers the same app's requests for a little while after.
+const FOLLOW_UP_US = 30 * GLib.USEC_PER_SEC;
+
 function kindName(kind) {
     return kind === 'mic' ? _('Microphone') : _('System audio');
 }
@@ -128,6 +132,7 @@ export default class MicSnitchExtension extends Extension {
         this._settings = this.getSettings();
         this._privacy = new Gio.Settings({schema_id: 'org.gnome.desktop.privacy'});
         this._queue = new Map();
+        this._lastAnswers = new Map();
         this._cancellable = new Gio.Cancellable();
         this._activity = new Activity(GLib.getenv('XDG_SESSION_ID') ||
             String(Gio.Credentials.new().get_unix_pid()));
@@ -169,7 +174,7 @@ export default class MicSnitchExtension extends Extension {
         this._retryId = 0;
         this._settings = this._privacy = this._channel = this._activity = null;
         this._cancellable = null;
-        this._queue = this._dialog = this._indicator = null;
+        this._queue = this._lastAnswers = this._dialog = this._indicator = null;
     }
 
     _sync() {
@@ -216,12 +221,15 @@ export default class MicSnitchExtension extends Extension {
             const {app, request} = entry;
             if (!app)
                 return;
-            const rules = this._settings.get_value('rules').deepUnpack();
-            const rule = app.key && rules[`${request.kind}:${app.key}`];
+            const key = app.key && `${request.kind}:${app.key}`;
+            const rule = key && this._settings.get_value('rules').deepUnpack()[key];
+            const last = key && this._lastAnswers.get(key);
             if (request.kind === 'system' && !this._settings.get_boolean('system-audio')) {
                 this._answer(id, entry, true, 'system');
             } else if (rule) {
                 this._answer(id, entry, rule === 'allow', 'remembered');
+            } else if (last?.until > GLib.get_monotonic_time()) {
+                this._answer(id, entry, last.allowed, 'follow-up');
             } else {
                 this._show(id, app, request);
                 return;
@@ -268,11 +276,18 @@ export default class MicSnitchExtension extends Extension {
 
     _answer(id, {app, request}, allowed, reason = 'once') {
         this._channel.answer(id, request.serial, request.kind, allowed);
-        this._activity.add({
-            app: app.name, kind: request.kind, source: request.source,
-            action: allowed ? 'allow' : 'deny', reason,
-        });
         this._queue.delete(id);
+        if (app.key && (reason === 'once' || reason === 'follow-up')) {
+            this._lastAnswers.set(`${request.kind}:${app.key}`,
+                {allowed, until: GLib.get_monotonic_time() + FOLLOW_UP_US});
+        }
+        // Follow-ups are the same decision, so they don't fill the list
+        if (reason !== 'follow-up') {
+            this._activity.add({
+                app: app.name, kind: request.kind, source: request.source,
+                action: allowed ? 'allow' : 'deny', reason,
+            });
+        }
     }
 
     _remember(key, allowed) {

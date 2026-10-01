@@ -12,11 +12,11 @@ import {ExtensionPreferences, gettext as _} from 'resource:///org/gnome/Shell/Ex
 
 function nameOf(key) {
     const [kind, value] = key.split(/:(.*)/);
-    if (kind === 'app')
-        return value;
-    const info = kind === 'exe' ? null : GioUnix.DesktopAppInfo.new(
-        value.endsWith('.desktop') ? value : `${value}.desktop`);
-    return info?.get_name() ?? GLib.path_get_basename(value);
+    if (kind === 'exe')
+        return GLib.path_get_basename(value);
+    // Flatpak and launcher IDs have a name; "program / name" claims don't
+    const info = value.includes('/') ? null : GioUnix.DesktopAppInfo.new(`${value}.desktop`);
+    return info?.get_name() ?? value;
 }
 
 export default class MicSnitchPreferences extends ExtensionPreferences {

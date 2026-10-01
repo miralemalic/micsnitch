@@ -52,6 +52,7 @@ export const RequestDialog = GObject.registerClass({
             this._remember = new CheckBox.CheckBox(app.verified
                 ? _('Remember for %s').format(app.program ?? name)
                 : _('Remember for anything calling itself %s').format(app.claim ?? name));
+            this._remember.add_style_class_name('micsnitch-remember');
             content.add_child(this._remember);
         }
 

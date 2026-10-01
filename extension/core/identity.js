@@ -9,9 +9,9 @@ import GioUnix from 'gi://GioUnix';
 Gio._promisify(Gio.File.prototype, 'load_contents_async');
 Gio._promisify(Gio.File.prototype, 'query_info_async');
 
-// GNOME runs apps in scopes like app-gnome-org.gnome.Maps-1234.scope,
-// Flatpak in app-flatpak-org.gnome.Maps-1234.scope.
-const SCOPE = /app-(?:gnome|flatpak)-(.+?)-\d+\.scope/;
+// Apps run in scopes like app-gnome-org.gnome.Maps-1234.scope, or
+// app-codium-1234.scope when they start themselves.
+const SCOPE = /app-(?:(?:gnome|flatpak)-)?(.+?)-\d+\.scope/;
 
 async function read(path, cancellable) {
     try {
@@ -70,16 +70,22 @@ export async function identify(request, cancellable = null) {
         return {...app, program};
     }
 
+    // A claimed PID can help find a name and icon, but cannot establish
+    // identity. The app found must at least run the program it claims.
+    const mine = request.pid && binary &&
+        (await read(`/proc/${request.pid}/comm`, cancellable)).trim() === binary.slice(0, 15);
+    let launched = mine ? await appOfPid(request.pid, cancellable) : null;
+    if (!launched?.get_executable()?.includes(binary))
+        launched = null;
+
     // Every Chromium-based app (Electron, Qt WebEngine) calls itself
     // "Chromium input", so there the program name says more. Rules go by
     // both, so apps sharing a program like electron don't share one either.
+    // A web app's own launcher tells it apart from the browser it runs in.
     const named = request.app?.startsWith('Chromium') ? null : request.app;
-    const claim = flatpak ?? ([binary, named].filter(Boolean).join(' / ') || null);
-
-    // A claimed PID can help find a name and icon, but cannot establish identity.
-    const mine = request.pid && binary &&
-        (await read(`/proc/${request.pid}/comm`, cancellable)).trim() === binary.slice(0, 15);
-    const info = desktopApp(flatpak) ?? (mine ? await appOfPid(request.pid, cancellable) : null);
+    const claim = flatpak ?? launched?.get_id().replace(/\.desktop$/, '') ??
+        ([binary, named].filter(Boolean).join(' / ') || null);
+    const info = desktopApp(flatpak) ?? launched;
     const app = describe(claim && `app:${claim}`, info, named ?? binary ?? flatpak, binary, false);
     return {...app, claim: app.name};
 }

@@ -96,8 +96,17 @@ check 'both requests claim the same binary' \
     "$(shell "[...$obj._queue.values()].every(e => e.request.binary === [...$obj._queue.values()][0].request.binary)")" true
 check 'the first popup identifies ChatGPT' \
     "$(shell "$obj._queue.get($obj._dialog.requestId).app.name")" ChatGPT
+# Just Perfection can paint every icon in the accent colour, ticks included
+printf '.micsnitch-test-accent StIcon { color: -st-accent-color; }\n' >/tmp/accent.css
+shell "imports.gi.St.ThemeContext.get_for_stage(global.stage).get_theme().load_stylesheet(imports.gi.Gio.File.new_for_path('/tmp/accent.css')); Main.layoutManager.uiGroup.add_style_class_name('micsnitch-test-accent')" >/dev/null
+box="$obj._dialog._remember"
+tick="$box._check.get_theme_node().get_foreground_color().alpha"
+check 'the test really paints ticks in the accent colour' \
+    "$(shell "$box.remove_style_class_name('micsnitch-remember'); const a = $tick; $box.add_style_class_name('micsnitch-remember'); a > 0")" true
+check 'an unticked Remember box shows no tick' "$(shell "$tick")" 0
+check 'a ticked one does' "$(shell "$box.checked = true; $tick > 0")" true
 sleep 1
-shell "$obj._dialog._remember.checked = true; $obj._dialog._respond(true)" >/dev/null
+shell "$obj._dialog._respond(true)" >/dev/null
 wait_shell "$obj._queue.get($obj._dialog?.requestId)?.app.name" Slack
 check 'remembering ChatGPT does not answer another app sharing its binary' \
     "$(shell "Object.keys($obj._settings.get_value('rules').deepUnpack())")" '["mic:app:electron / ChatGPT"]'
@@ -127,6 +136,21 @@ check 'a remembered app does not open another popup' "$(shell "$obj._dialog == n
 wait_shell "$obj._activity.events.some(e => e.reason === 'remembered')" true
 stop_first_recording
 expect_denied 'a remembered recording can still be stopped individually' "$remembered"
+
+recorder Repeat /tmp/repeat1.wav >"$out/repeat.log" 2>&1 & repeat1=$!
+wait_shell "$obj._dialog != null" true
+sleep 1
+shell "$obj._dialog._respond(true)" >/dev/null
+wait_shell "$obj._channel.recordings.size" 1
+recorder Repeat /tmp/repeat2.wav >>"$out/repeat.log" 2>&1 & repeat2=$!
+wait_shell "$obj._channel.recordings.size" 2
+check 'the same app asking again right away gets no second popup' \
+    "$(shell "$obj._dialog == null")" true
+stop_first_recording
+wait_shell "$obj._channel.recordings.size" 1
+stop_first_recording
+expect_denied 'both of its recordings can be stopped' "$repeat1"
+expect_denied 'and both end' "$repeat2"
 
 # Enter the real unlock-dialog mode: GNOME must disable this user-only extension.
 shell "global._micsnitchTestIndicator = $obj._indicator; Main.sessionMode.pushMode('unlock-dialog')" >/dev/null
