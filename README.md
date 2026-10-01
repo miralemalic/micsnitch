@@ -16,6 +16,29 @@ Built-in Microphone
                                   [ Deny ]  [ Allow ]
 ```
 
+## Works on
+
+GNOME **48 to 51**, PipeWire **1.2+** and WirePlumber **0.5.8+**.
+
+| Tested on    | GNOME     | WirePlumber | PipeWire |
+|--------------|-----------|-------------|----------|
+| Fedora 45    | 51.0      | 0.5.18      | 1.6.9    |
+| Fedora 44    | 50.5      | 0.5.17      | 1.6.9    |
+| Fedora 43    | 49.10     | 0.5.14      | 1.4.11   |
+| Ubuntu 26.04 | 50.1      | 0.5.13      | 1.6.2    |
+| Debian 13    | 48.7      | 0.5.8       | 1.4.2    |
+| Arch         | gate only | 0.5.17      | 1.6.9    |
+
+Each one runs the tests in a container with a fake microphone, and the GNOME
+ones in a GNOME Shell no one can see. MicSnitch also runs on real hardware every
+day, on Fedora 44. Other distros with these versions should hold up too, think
+openSUSE Tumbleweed, Manjaro or EndeavourOS, but nobody has checked yet.
+
+Out of reach: Ubuntu 24.04, Debian 12 and Linux Mint 22 ship WirePlumber 0.4,
+which works differently. KDE and other desktops have no handler yet. And on
+WirePlumber older than 0.5.12, Debian 13 included, a request that times out is
+refused without a notification.
+
 ## The setup
 
 Two parts, one job.
@@ -64,14 +87,6 @@ MicSnitch is a checkpoint, not a vault. Know where its walls end.
 - Apps lose PipeWire's link-factory, so patchbays like qpwgraph and Helvum,
   and JACK apps that wire their own ports, can't. Loading PulseAudio modules is
   switched off too: a loopback would be a tunnel under the gate.
-
-## Works on
-
-GNOME **48 to 51**, PipeWire **1.2+** and WirePlumber **0.5.8+**: Fedora 43,
-44 and 45, Ubuntu 26.04, Debian 13, Arch and friends. On WirePlumber older than
-0.5.12, Debian 13's included, a request that times out is refused without a
-notification. Ubuntu 24.04, Debian 12 and Linux Mint 22 run WirePlumber 0.4
-and are out of reach. Other desktops have no handler yet.
 
 ## Install
 
