@@ -10,9 +10,9 @@ playing, is stopped at the door and brought to you. You decide. Nothing crosses
 in the meantime.
 
 ```text
-Allow ChatGPT to use the microphone?
+Allow Discord to use the microphone?
 Built-in Microphone
-☐ Remember for anything calling itself ChatGPT
+☐ Remember for anything calling itself Discord
                                   [ Deny ]  [ Allow ]
 ```
 
@@ -52,7 +52,7 @@ wire: `pw-metadata -m -n micsnitch`.
 MicSnitch is a checkpoint, not a vault. Know where its walls end.
 
 - Most apps reach the sound system through PulseAudio, and there they name
-  themselves. Anything can claim to be ChatGPT, which is why the popup says
+  themselves. Anything can claim to be Discord, which is why the popup says
   "anything calling itself". Apps that talk to PipeWire directly are named by
   the kernel, down to the program on disk. For a script, that's its
   interpreter, python3 and all.

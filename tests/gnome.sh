@@ -91,14 +91,14 @@ wait_shell "$obj._channel.active" true
 check 'the extension starts without an error' "$(shell "$ext.error ?? ''")" ''
 check 'the installer switched the popup on for the next login' \
     "$(grep -c "'micsnitch@miralemalic'" <<<"$installed")" 1
-recorder ChatGPT /tmp/chatgpt.wav >"$out/chatgpt.log" 2>&1 & first=$!
+recorder Discord /tmp/discord.wav >"$out/discord.log" 2>&1 & first=$!
 wait_shell "$obj._dialog != null" true
 recorder Slack /tmp/slack.wav >"$out/slack.log" 2>&1 & second=$!
 wait_shell "$obj._queue.size" 2
 check 'both requests claim the same binary' \
     "$(shell "[...$obj._queue.values()].every(e => e.request.binary === [...$obj._queue.values()][0].request.binary)")" true
-check 'the first popup identifies ChatGPT' \
-    "$(shell "$obj._queue.get($obj._dialog.requestId).app.name")" ChatGPT
+check 'the first popup identifies Discord' \
+    "$(shell "$obj._queue.get($obj._dialog.requestId).app.name")" Discord
 # Just Perfection can paint every icon in the accent colour, ticks included
 printf '.micsnitch-test-accent StIcon { color: -st-accent-color; }\n' >/tmp/accent.css
 shell "imports.gi.St.ThemeContext.get_for_stage(global.stage).get_theme().load_stylesheet(imports.gi.Gio.File.new_for_path('/tmp/accent.css')); Main.layoutManager.uiGroup.add_style_class_name('micsnitch-test-accent')" >/dev/null
@@ -111,14 +111,14 @@ check 'a ticked one does' "$(shell "$box.checked = true; $tick > 0")" true
 sleep 1
 shell "$obj._dialog._respond(true)" >/dev/null
 wait_shell "$obj._queue.get($obj._dialog?.requestId)?.app.name" Slack
-check 'remembering ChatGPT does not answer another app sharing its binary' \
-    "$(shell "Object.keys($obj._settings.get_value('rules').deepUnpack())")" '["mic:app:electron / ChatGPT"]'
+check 'remembering Discord does not answer another app sharing its binary' \
+    "$(shell "Object.keys($obj._settings.get_value('rules').deepUnpack())")" '["mic:app:electron / Discord"]'
 sleep 1
 shell "$obj._dialog._respond(false)" >/dev/null
 expect_denied 'Deny stops Slack with an error' "$second"
 wait_shell "$obj._channel.recordings.size" 1
-check 'the active recording is ChatGPT' \
-    "$(shell "[...$obj._channel.recordings.values()][0].app")" ChatGPT
+check 'the active recording is Discord' \
+    "$(shell "[...$obj._channel.recordings.values()][0].app")" Discord
 wait_shell "$obj._activity.events.length >= 2" true
 check 'recent activity includes allow and deny' \
     "$(shell "['allow','deny'].every(a => $obj._activity.events.some(e => e.action === a))")" true
@@ -138,13 +138,13 @@ shell "Main.panel.statusArea.quickSettings.menu.open(); $toggle.menu.open()" >/d
 # Let some real sound reach the recorder before stopping it
 sleep 2
 stop_first_recording
-expect_denied 'the menu Stop button disconnects ChatGPT' "$first"
+expect_denied 'the menu Stop button disconnects Discord' "$first"
 wait_shell "$obj._channel.recordings.size" 0
-check 'the allowed recording received real audio' "$(sound_of /tmp/chatgpt.wav)" sound
+check 'the allowed recording received real audio' "$(sound_of /tmp/discord.wav)" sound
 wait_shell "$obj._activity.events.some(e => e.action === 'stop')" true
 shell 'Main.panel.statusArea.quickSettings.menu.close()' >/dev/null
 
-recorder ChatGPT /tmp/remembered.wav >"$out/remembered.log" 2>&1 & remembered=$!
+recorder Discord /tmp/remembered.wav >"$out/remembered.log" 2>&1 & remembered=$!
 wait_shell "$obj._channel.recordings.size" 1
 check 'a remembered app does not open another popup' "$(shell "$obj._dialog == null")" true
 wait_shell "$obj._activity.events.some(e => e.reason === 'remembered')" true
@@ -174,7 +174,7 @@ check 'locking removes its indicator and recording controls' \
     "$(shell "!Main.panel.statusArea.quickSettings._indicators.get_children().includes(global._micsnitchTestIndicator) && $obj._indicator === null && $obj._channel === null")" true
 check 'locking leaves only a deliberate hold claim' \
     "$(entries micsnitch.ui | python3 -c 'import json,sys; e=json.load(sys.stdin); print(e[0]["value"] if e else "missing")')" locked
-recorder ChatGPT /tmp/locked-rule.wav >"$out/locked-rule.log" 2>&1 & locked_rule=$!
+recorder Discord /tmp/locked-rule.wav >"$out/locked-rule.log" 2>&1 & locked_rule=$!
 for _ in $(seq 50); do
     [ "$(entries micsnitch.request | python3 -c 'import json,sys; print(len(json.load(sys.stdin)))')" = 1 ] && break
     sleep 0.1
@@ -194,9 +194,9 @@ stop_first_recording
 expect_denied 'the recording allowed on unlock can be stopped' "$locked_rule"
 
 # The settings window asks through the undo key
-recorder ChatGPT /tmp/undo.wav >"$out/undo.log" 2>&1 & undone=$!
+recorder Discord /tmp/undo.wav >"$out/undo.log" 2>&1 & undone=$!
 wait_shell "$obj._channel.recordings.size" 1
-shell "$obj._settings.set_string('undo', $obj._activity.events.findLast(e => e.app === 'ChatGPT' && e.action === 'allow').id)" >/dev/null
+shell "$obj._settings.set_string('undo', $obj._activity.events.findLast(e => e.app === 'Discord' && e.action === 'allow').id)" >/dev/null
 expect_denied 'Undo from settings stops an allowed recording' "$undone"
 wait_shell "$obj._settings.get_string('undo')" ''
 check 'and forgets the remembered answer' \
