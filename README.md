@@ -26,11 +26,11 @@ GNOME **48 to 51**, PipeWire **1.2+** and WirePlumber **0.5.8+**.
 | Fedora 43    | 49.10     | 0.5.14      | 1.4.11   |
 | Ubuntu 26.04 | 50.1      | 0.5.13      | 1.6.2    |
 | Debian 13    | 48.7      | 0.5.8       | 1.4.2    |
-| Arch         | gate only | 0.5.17      | 1.6.9    |
+| Arch         | 50.5      | 0.5.18      | 1.6.9    |
 
-Each one runs the tests in a container with a fake microphone, and the GNOME
-ones in a GNOME Shell no one can see. MicSnitch also runs on real hardware every
-day, on Fedora 44. Other distros with these versions should hold up too, think
+Each one runs the tests in a container with a fake microphone and a GNOME
+Shell no one can see. MicSnitch also runs on real hardware every day, on
+Fedora 44. Other distros with these versions should hold up too, think
 openSUSE Tumbleweed, Manjaro or EndeavourOS, but nobody has checked yet.
 
 Out of reach: Ubuntu 24.04, Debian 12 and Linux Mint 22 ship WirePlumber 0.4,
