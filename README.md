@@ -1,5 +1,7 @@
 # MicSnitch
 
+[![Tests](https://github.com/miralemalic/micsnitch/actions/workflows/tests.yml/badge.svg)](https://github.com/miralemalic/micsnitch/actions/workflows/tests.yml)
+
 **Nothing listens until you say so.**
 
 Any program you run can open your microphone without a word. Most never will.
