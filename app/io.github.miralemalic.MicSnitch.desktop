@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=MicSnitch
+Comment=Asks before any app records your microphone or system audio
+Icon=audio-input-microphone
+Exec=@LAUNCHER@
+Categories=Settings;Security;
+Keywords=microphone;privacy;permission;recording;

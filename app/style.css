@@ -1,0 +1,20 @@
+/* The dimmed screen around the question, like GNOME's own dialogs */
+window.micsnitch-backdrop {
+  background-color: rgb(0 0 0 / 45%);
+}
+
+.micsnitch-dialog {
+  background-color: var(--dialog-bg-color);
+  color: var(--dialog-fg-color);
+  border-radius: 18px;
+  padding: 24px;
+  box-shadow: 0 4px 24px rgb(0 0 0 / 35%);
+}
+
+.micsnitch-buttons {
+  margin-top: 12px;
+}
+
+.micsnitch-buttons button {
+  min-width: 120px;
+}

@@ -87,4 +87,10 @@ export const RequestDialog = GObject.registerClass({
         this.emit('response', allowed, this._remember?.checked ?? false);
         this.close();
     }
+
+    // Gone at once. Destroying alone would leave the grab in place.
+    dismiss() {
+        this.popModal();
+        this.destroy();
+    }
 });

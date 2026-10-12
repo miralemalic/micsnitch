@@ -6,7 +6,7 @@ set -euo pipefail
 . tests/lib.sh
 out=${OUT:-/out}
 
-gjs -m tests/extension.mjs
+gjs -m tests/core.mjs
 
 # Services started on demand, like the settings store, must share our runtime folder,
 # or the Shell never hears about saved settings.
@@ -65,15 +65,6 @@ check() {
     if [ "$2" = "$3" ]; then echo "  ok    $1"
     else echo "  FAIL  $1 (expected $3, got $2)"; exit 1; fi
 }
-recorder() {
-    timeout -k 1 45 parecord --client-name="$1" \
-        --property=application.process.binary=electron --device=fake-mic --file-format=wav "$2"
-}
-expect_denied() {
-    local code
-    if wait "$2"; then code=0; else code=$?; fi
-    case $code in 0|124|137) check "$1" "exit $code" error ;; *) check "$1" error error ;; esac
-}
 undo_in_menu() {
     shell "$toggle._recent._getMenuItems().find(i => i.get_children().some(c => c.get_first_child?.()?.text === '$1')).get_children().find(c => c.get_label?.() === 'Undo').emit('clicked', 1)" >/dev/null
 }
@@ -85,53 +76,54 @@ wait_shell '1' 1
 echo "$(gnome-shell --version)"
 ext='Main.extensionManager.lookup("micsnitch@miralemalic")'
 obj="$ext.stateObj"
+h="$obj._handler"
 toggle="$obj._indicator.quickSettingsItems[0]"
 wait_shell "$ext.state" 1
-wait_shell "$obj._channel.active" true
+wait_shell "$h._channel.active" true
 check 'the extension starts without an error' "$(shell "$ext.error ?? ''")" ''
 check 'the installer switched the popup on for the next login' \
     "$(grep -c "'micsnitch@miralemalic'" <<<"$installed")" 1
 recorder Discord /tmp/discord.wav >"$out/discord.log" 2>&1 & first=$!
-wait_shell "$obj._dialog != null" true
+wait_shell "$h._dialog != null" true
 recorder Slack /tmp/slack.wav >"$out/slack.log" 2>&1 & second=$!
-wait_shell "$obj._queue.size" 2
+wait_shell "$h._queue.size" 2
 check 'both requests claim the same binary' \
-    "$(shell "[...$obj._queue.values()].every(e => e.request.binary === [...$obj._queue.values()][0].request.binary)")" true
+    "$(shell "[...$h._queue.values()].every(e => e.request.binary === [...$h._queue.values()][0].request.binary)")" true
 check 'the first popup identifies Discord' \
-    "$(shell "$obj._queue.get($obj._dialog.requestId).app.name")" Discord
+    "$(shell "$h._queue.get($h._dialog.requestId).app.name")" Discord
 # Just Perfection can paint every icon in the accent colour, ticks included
 printf '.micsnitch-test-accent StIcon { color: -st-accent-color; }\n' >/tmp/accent.css
 shell "imports.gi.St.ThemeContext.get_for_stage(global.stage).get_theme().load_stylesheet(imports.gi.Gio.File.new_for_path('/tmp/accent.css')); Main.layoutManager.uiGroup.add_style_class_name('micsnitch-test-accent')" >/dev/null
-box="$obj._dialog._remember"
+box="$h._dialog._remember"
 tick="$box._check.get_theme_node().get_foreground_color().alpha"
 check 'the test really paints ticks in the accent colour' \
     "$(shell "$box.remove_style_class_name('micsnitch-remember'); const a = $tick; $box.add_style_class_name('micsnitch-remember'); a > 0")" true
 check 'an unticked Remember box shows no tick' "$(shell "$tick")" 0
 check 'a ticked one does' "$(shell "$box.checked = true; $tick > 0")" true
 sleep 1
-shell "$obj._dialog._respond(true)" >/dev/null
-wait_shell "$obj._queue.get($obj._dialog?.requestId)?.app.name" Slack
+shell "$h._dialog._respond(true)" >/dev/null
+wait_shell "$h._queue.get($h._dialog?.requestId)?.app.name" Slack
 check 'remembering Discord does not answer another app sharing its binary' \
     "$(shell "Object.keys($obj._settings.get_value('rules').deepUnpack())")" '["mic:app:electron / Discord"]'
 sleep 1
-shell "$obj._dialog._respond(false)" >/dev/null
+shell "$h._dialog._respond(false)" >/dev/null
 expect_denied 'Deny stops Slack with an error' "$second"
-wait_shell "$obj._channel.recordings.size" 1
+wait_shell "$h._channel.recordings.size" 1
 check 'the active recording is Discord' \
-    "$(shell "[...$obj._channel.recordings.values()][0].app")" Discord
-wait_shell "$obj._activity.events.length >= 2" true
+    "$(shell "[...$h._channel.recordings.values()][0].app")" Discord
+wait_shell "$h._activity.events.length >= 2" true
 check 'recent activity includes allow and deny' \
-    "$(shell "['allow','deny'].every(a => $obj._activity.events.some(e => e.action === a))")" true
+    "$(shell "['allow','deny'].every(a => $h._activity.events.some(e => e.action === a))")" true
 
 # Without the undo, Slack would be refused again for 30 seconds
 undo_in_menu Slack
-wait_shell "$obj._activity.events.some(e => e.app === 'Slack' && e.undone)" true
+wait_shell "$h._activity.events.some(e => e.app === 'Slack' && e.undone)" true
 recorder Slack /tmp/slack2.wav >>"$out/slack.log" 2>&1 & slack2=$!
-wait_shell "$obj._dialog != null" true
+wait_shell "$h._dialog != null" true
 check 'after Undo in the menu a denied app is asked again' \
-    "$(shell "$obj._queue.get($obj._dialog.requestId).app.name")" Slack
+    "$(shell "$h._queue.get($h._dialog.requestId).app.name")" Slack
 sleep 1
-shell "$obj._dialog._respond(false)" >/dev/null
+shell "$h._dialog._respond(false)" >/dev/null
 expect_denied 'and can be refused again' "$slack2"
 
 shell "Main.panel.statusArea.quickSettings.menu.open(); $toggle.menu.open()" >/dev/null
@@ -139,29 +131,29 @@ shell "Main.panel.statusArea.quickSettings.menu.open(); $toggle.menu.open()" >/d
 sleep 2
 stop_first_recording
 expect_denied 'the menu Stop button disconnects Discord' "$first"
-wait_shell "$obj._channel.recordings.size" 0
+wait_shell "$h._channel.recordings.size" 0
 check 'the allowed recording received real audio' "$(sound_of /tmp/discord.wav)" sound
-wait_shell "$obj._activity.events.some(e => e.action === 'stop')" true
+wait_shell "$h._activity.events.some(e => e.action === 'stop')" true
 shell 'Main.panel.statusArea.quickSettings.menu.close()' >/dev/null
 
 recorder Discord /tmp/remembered.wav >"$out/remembered.log" 2>&1 & remembered=$!
-wait_shell "$obj._channel.recordings.size" 1
-check 'a remembered app does not open another popup' "$(shell "$obj._dialog == null")" true
-wait_shell "$obj._activity.events.some(e => e.reason === 'remembered')" true
+wait_shell "$h._channel.recordings.size" 1
+check 'a remembered app does not open another popup' "$(shell "$h._dialog == null")" true
+wait_shell "$h._activity.events.some(e => e.reason === 'remembered')" true
 stop_first_recording
 expect_denied 'a remembered recording can still be stopped individually' "$remembered"
 
 recorder Repeat /tmp/repeat1.wav >"$out/repeat.log" 2>&1 & repeat1=$!
-wait_shell "$obj._dialog != null" true
+wait_shell "$h._dialog != null" true
 sleep 1
-shell "$obj._dialog._respond(true)" >/dev/null
-wait_shell "$obj._channel.recordings.size" 1
+shell "$h._dialog._respond(true)" >/dev/null
+wait_shell "$h._channel.recordings.size" 1
 recorder Repeat /tmp/repeat2.wav >>"$out/repeat.log" 2>&1 & repeat2=$!
-wait_shell "$obj._channel.recordings.size" 2
+wait_shell "$h._channel.recordings.size" 2
 check 'the same app asking again right away gets no second popup' \
-    "$(shell "$obj._dialog == null")" true
+    "$(shell "$h._dialog == null")" true
 stop_first_recording
-wait_shell "$obj._channel.recordings.size" 1
+wait_shell "$h._channel.recordings.size" 1
 stop_first_recording
 expect_denied 'both of its recordings can be stopped' "$repeat1"
 expect_denied 'and both end' "$repeat2"
@@ -171,7 +163,7 @@ shell "global._micsnitchTestIndicator = $obj._indicator; Main.sessionMode.pushMo
 wait_shell "$ext.state" 2
 check 'the extension is disabled in unlock-dialog mode' "$(shell "$ext.state")" 2
 check 'locking removes its indicator and recording controls' \
-    "$(shell "!Main.panel.statusArea.quickSettings._indicators.get_children().includes(global._micsnitchTestIndicator) && $obj._indicator === null && $obj._channel === null")" true
+    "$(shell "!Main.panel.statusArea.quickSettings._indicators.get_children().includes(global._micsnitchTestIndicator) && $obj._indicator === null && $obj._handler === null")" true
 check 'locking leaves only a deliberate hold claim' \
     "$(entries micsnitch.ui | python3 -c 'import json,sys; e=json.load(sys.stdin); print(e[0]["value"] if e else "missing")')" locked
 recorder Discord /tmp/locked-rule.wav >"$out/locked-rule.log" 2>&1 & locked_rule=$!
@@ -185,38 +177,38 @@ check 'locking holds the recorder instead of timing it out' \
     "$(kill -0 "$locked_rule" 2>/dev/null && echo waiting || echo stopped)" waiting
 shell "Main.sessionMode.popMode('unlock-dialog')" >/dev/null
 wait_shell "$ext.state" 1
-wait_shell "$obj._activity.events.some(e => e.app === 'Slack' && e.undone)" true
+wait_shell "$h._activity.events.some(e => e.app === 'Slack' && e.undone)" true
 check 'decisions from before the lock are still listed' "$?" 0
-wait_shell "$obj._channel.recordings.size" 1
+wait_shell "$h._channel.recordings.size" 1
 check 'unlock restores the extension and applies the remembered rule' \
-    "$(shell "$obj._dialog == null && $obj._queue.size === 0")" true
+    "$(shell "$h._dialog == null && $h._queue.size === 0")" true
 stop_first_recording
 expect_denied 'the recording allowed on unlock can be stopped' "$locked_rule"
 
 # The settings window asks through the undo key
 recorder Discord /tmp/undo.wav >"$out/undo.log" 2>&1 & undone=$!
-wait_shell "$obj._channel.recordings.size" 1
-shell "$obj._settings.set_string('undo', $obj._activity.events.findLast(e => e.app === 'Discord' && e.action === 'allow').id)" >/dev/null
+wait_shell "$h._channel.recordings.size" 1
+shell "$obj._settings.set_string('undo', $h._activity.events.findLast(e => e.app === 'Discord' && e.action === 'allow').id)" >/dev/null
 expect_denied 'Undo from settings stops an allowed recording' "$undone"
 wait_shell "$obj._settings.get_string('undo')" ''
 check 'and forgets the remembered answer' \
     "$(shell "Object.keys($obj._settings.get_value('rules').deepUnpack()).length")" 0
 
 recorder Unremembered /tmp/disable.wav >"$out/disable.log" 2>&1 & disabled=$!
-wait_shell "$obj._dialog != null" true
+wait_shell "$h._dialog != null" true
 before=$(shell 'Main.modalCount')
-history_count=$(shell "$obj._activity.events.length")
+history_count=$(shell "$h._activity.events.length")
 shell 'Main.extensionManager.disableExtension("micsnitch@miralemalic")' >/dev/null
 wait_shell 'Main.modalCount' "$((before - 1))"
 check 'disabling a popup releases its modal grab' "$(shell 'Main.modalCount')" "$((before - 1))"
 shell 'Main.extensionManager.enableExtension("micsnitch@miralemalic")' >/dev/null
-wait_shell "$obj._dialog != null" true
+wait_shell "$h._dialog != null" true
 check 'recent decisions survive extension disable and re-enable' \
-    "$(shell "$obj._activity.events.length >= $history_count")" true
+    "$(shell "$h._activity.events.length >= $history_count")" true
 sleep 1
-shell "$obj._dialog._remember.checked = true; $obj._dialog._respond(false)" >/dev/null
+shell "$h._dialog._remember.checked = true; $h._dialog._respond(false)" >/dev/null
 expect_denied 'the restored popup can deny its pending recorder' "$disabled"
-check 'the extension remains protected' "$(shell "$obj._channel.active")" true
+check 'the extension remains protected' "$(shell "$h._channel.active")" true
 shell "Main.extensionManager.openExtensionPrefs('micsnitch@miralemalic', '', {})" >/dev/null
 wait_shell "global.get_window_actors().some(a => a.meta_window.title === 'MicSnitch')" true
 check 'the settings window opens' \

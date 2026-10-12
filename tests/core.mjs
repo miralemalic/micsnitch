@@ -1,4 +1,4 @@
-// Tests for the parts that don't need GNOME Shell
+// Tests for the shared parts, which need neither GNOME Shell nor KDE
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import System from 'system';
@@ -32,9 +32,9 @@ GLib.mkdir_with_parents(bin, 0o700);
 GLib.setenv('PATH', `${bin}:${GLib.getenv('PATH')}`, true);
 GLib.setenv('TEST_WRITES', `${directory}/writes`, true);
 
-const {Activity} = await import('../extension/core/activity.js');
-const {Channel} = await import('../extension/core/channel.js');
-const {identify} = await import('../extension/core/identity.js');
+const {Activity} = await import('../core/activity.js');
+const {Channel} = await import('../core/channel.js');
+const {appIdOf, identify} = await import('../core/identity.js');
 
 const chat = await identify({app: 'Discord', binary: 'electron'});
 const slack = await identify({app: 'Slack', binary: 'electron'});
@@ -53,6 +53,19 @@ const zapzap = await identify({app: 'Chromium input', binary: 'QtWebEngineProces
     flatpak: 'com.rtosta.zapzap'});
 assert(zapzap.key === 'app:com.rtosta.zapzap', 'A Flatpak app is remembered by its app ID');
 print('PASS: unverified names have separate rules and matching labels');
+
+const apps = '0::/user.slice/user-1000.slice/user@1000.service/app.slice/';
+const random = '0b5c4f3b9a7e4d6f8c1a2b3c4d5e6f70';
+for (const [cgroup, id] of [
+    [`${apps}app-gnome-org.gnome.Maps-1234.scope`, 'org.gnome.Maps'],
+    [`${apps}app-codium-4242.scope`, 'codium'],
+    [`${apps}app-org.kde.konsole@${random}.service`, 'org.kde.konsole'],
+    [`${apps}app-org.kde.dolphin-${random}.scope`, 'org.kde.dolphin'],
+    [`${apps}app-org.kde.kdeconnect\\x2dapp@${random}.service`, 'org.kde.kdeconnect-app'],
+    ['0::/user.slice/user-1000.slice/session-2.scope', undefined],
+])
+    assert(appIdOf(cgroup) === id, `${cgroup} should belong to ${id}, not ${appIdOf(cgroup)}`);
+print('PASS: GNOME and KDE launchers both lead to the app');
 
 const activity = new Activity('first-login');
 await activity.loaded;

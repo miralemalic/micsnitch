@@ -1,0 +1,11 @@
+[Unit]
+Description=MicSnitch, asks before apps record audio
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+ExecStart=@LAUNCHER@ --gapplication-service
+Restart=on-failure
+
+[Install]
+WantedBy=graphical-session.target

@@ -11,6 +11,11 @@
       <default>true</default>
       <summary>Ask before apps record system audio</summary>
     </key>
+    <key name="disable-microphone" type="b">
+      <default>false</default>
+      <summary>Cut every recording and refuse new ones</summary>
+      <description>For desktops without a microphone switch of their own. GNOME uses its privacy setting instead.</description>
+    </key>
     <key name="undo" type="s">
       <default>''</default>
       <summary>Decision to take back</summary>

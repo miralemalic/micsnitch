@@ -1,0 +1,5 @@
+#!/bin/sh
+# Starts MicSnitch for KDE Plasma.
+# gtk4-layer-shell only works if it loads before Wayland itself does.
+export LD_PRELOAD="libgtk4-layer-shell.so.0${LD_PRELOAD:+:$LD_PRELOAD}"
+exec gjs -m "$(dirname "$(readlink -f "$0")")/main.js" "$@"

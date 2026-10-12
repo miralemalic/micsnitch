@@ -13,6 +13,11 @@ data=${XDG_DATA_HOME:-$HOME/.local/share}
 cfg=${XDG_CONFIG_HOME:-$HOME/.config}
 
 gnome-extensions uninstall micsnitch@miralemalic 2>/dev/null || true
+systemctl --user stop micsnitch.service 2>/dev/null || true
+rm -rf "${data:?}/micsnitch"
+rm -f "$cfg/systemd/user/micsnitch.service" \
+      "$cfg/systemd/user/graphical-session.target.wants/micsnitch.service" \
+      "$data/applications/io.github.miralemalic.MicSnitch.desktop"
 rm -f "$data/wireplumber/scripts/micsnitch.lua" \
       "$cfg/wireplumber/wireplumber.conf.d/micsnitch.conf" \
       "$cfg/pipewire/pipewire.conf.d/50-micsnitch.conf" \

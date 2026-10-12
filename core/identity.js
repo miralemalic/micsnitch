@@ -8,9 +8,10 @@ import GioUnix from 'gi://GioUnix';
 Gio._promisify(Gio.File.prototype, 'load_contents_async');
 Gio._promisify(Gio.File.prototype, 'query_info_async');
 
-// Apps run in scopes like app-gnome-org.gnome.Maps-1234.scope, or
-// app-codium-1234.scope when they start themselves.
-const SCOPE = /app-(?:(?:gnome|flatpak)-)?(.+?)-\d+\.scope/;
+// Apps run in units like app-gnome-org.gnome.Maps-1234.scope, or
+// app-codium-1234.scope when they start themselves. KDE starts them as
+// app-org.kde.konsole@<random>.service or app-org.kde.dolphin-<random>.scope.
+const UNIT = /app-(?:(?:gnome|flatpak)-)?(.+?)(?:-[0-9a-f]+\.scope|@[^/]+\.service)/;
 
 async function read(path, cancellable) {
     try {
@@ -36,10 +37,14 @@ function desktopApp(id) {
     return id ? GioUnix.DesktopAppInfo.new(`${id}.desktop`) : null;
 }
 
+// The launcher's app ID in a process's cgroup, if a launcher started it
+export function appIdOf(cgroup) {
+    const [, id] = cgroup.match(UNIT) ?? [];
+    return id?.replace(/\\x([0-9a-f]{2})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
+}
+
 async function appOfPid(pid, cancellable) {
-    const [, scope] = (await read(`/proc/${pid}/cgroup`, cancellable)).match(SCOPE) ?? [];
-    return desktopApp(scope?.replace(/\\x([0-9a-f]{2})/g,
-        (_, hex) => String.fromCharCode(parseInt(hex, 16))));
+    return desktopApp(appIdOf(await read(`/proc/${pid}/cgroup`, cancellable)));
 }
 
 function describe(key, info, name, detail, verified) {

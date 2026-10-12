@@ -60,6 +60,19 @@ wait_for() {
     return 1
 }
 
+# A Pulse app the popup can name. Every one claims to be electron.
+recorder() {
+    timeout -k 1 45 parecord --client-name="$1" \
+        --property=application.process.binary=electron --device=fake-mic --file-format=wav "$2"
+}
+
+# A refused or stopped recorder ends with an error, not by running out of time
+expect_denied() {
+    local code
+    if wait "$2"; then code=0; else code=$?; fi
+    case $code in 0|124|137) check "$1" "exit $code" error ;; *) check "$1" error error ;; esac
+}
+
 # Read metadata through pw-dump so quoted app names remain valid JSON.
 entries() {
     pw-dump | python3 -c '
