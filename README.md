@@ -10,12 +10,9 @@ MicSnitch is for the ones that might.
 Every attempt to record, whether your microphone or whatever your speakers are
 playing, is stopped at the door and brought to you. You decide. 
 
-```text
-Allow Discord to use the microphone?
-Built-in Microphone
-☐ Remember for anything calling itself Discord
-                                  [ Deny ]  [ Allow ]
-```
+<p align="center">
+  <img src="docs/popup.png" width="421" alt="A popup asking: Allow ChatGPT to use the microphone? It names the microphone, offers to remember the answer for anything calling itself ChatGPT, and has Deny and Allow buttons.">
+</p>
 
 ## Works on
 
@@ -77,6 +74,19 @@ wire: `pw-metadata -m -n micsnitch`.
   any audio. An allow or deny there can be taken back with **Undo**.
 - On a locked screen, requests wait for you. Nothing is approved behind your
   back. With no handler at all, the answer after 15 seconds is no.
+
+<table>
+  <tr>
+    <td align="center">
+      <img src="docs/gnome-menu.png" width="320" alt="The MicSnitch menu in GNOME Quick Settings: ChatGPT recording now with a Stop button, and recent decisions for ChatGPT, LibreWolf, ZapZap and VSCodium, each with Undo.">
+      <br>GNOME, from Quick Settings
+    </td>
+    <td align="center">
+      <img src="docs/kde-window.png" width="320" alt="The MicSnitch window on KDE Plasma: switches for the microphone and system audio, ChatGPT recording now with Stop, recent decisions with Undo, and remembered apps with a button to forget each.">
+      <br>KDE Plasma, from the tray
+    </td>
+  </tr>
+</table>
 
 ## Field limits
 
