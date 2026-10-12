@@ -182,15 +182,17 @@ check "apps cannot wire the mic themselves" "$(self_wire)" refused
 start_app
 read -r on op _ < <(port_of fake-mic output)
 read -r inn ip _ < <(port_of evil input)
-stdbuf -oL pw-dump -m >/tmp/injected-link.json &
-observer=$!
-wait_for client_connected "$observer"
-pw-metadata -n default 0 micsnitch.test.link "$on $op $inn $ip" >/dev/null
-sleep 0.5
-kill "$observer"
-wait "$observer" 2>/dev/null
-check "the fixture really created an unapproved link" \
-    "$(python3 - "$on" "$inn" <<'JSON'
+# MicSnitch can cut the link before a slow observer sees it, so give it a few tries
+inject_link() {
+    pw-metadata -n default -d 0 micsnitch.test.link >/dev/null
+    stdbuf -oL pw-dump -m >/tmp/injected-link.json &
+    observer=$!
+    wait_for client_connected "$observer"
+    pw-metadata -n default 0 micsnitch.test.link "$on $op $inn $ip" >/dev/null
+    sleep 0.5
+    kill "$observer"
+    wait "$observer" 2>/dev/null
+    python3 - "$on" "$inn" <<'JSON'
 import json,sys
 text = open("/tmp/injected-link.json").read()
 decoder, created = json.JSONDecoder(), False
@@ -203,9 +205,15 @@ while text.strip():
             created = True
 print("created" if created else "missing")
 JSON
-)" created
-check "the policy removes that unapproved link" \
-    "$(linked fake-mic:capture_FL evil:playback_FL && echo linked || echo cut)" cut
+}
+for _ in 1 2 3; do
+    injected=$(inject_link)
+    [ "$injected" = created ] && break
+done
+check "the fixture really created an unapproved link" "$injected" created
+cut() { ! linked fake-mic:capture_FL evil:playback_FL; }
+wait_for cut || true
+check "the policy removes that unapproved link" "$(cut && echo cut || echo linked)" cut
 wait_request
 check "the injected receiver needs consent" "$(field "$req" kind)" mic
 stop_app
