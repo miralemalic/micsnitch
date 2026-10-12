@@ -1,0 +1,44 @@
+# The same tests as on your own machine: rootless Podman, a fake microphone,
+# and a GNOME Shell or a KWin no one can see.
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  checks:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - run: shellcheck -S warning -x tools/*.sh tests/*.sh app/micsnitch
+      - run: tests/harness.sh
+
+  gate:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        distro: [fedora45, fedora44, fedora43, ubuntu2604, debian13, arch]
+    steps:
+      - uses: actions/checkout@v7
+      - run: tests/matrix.sh ${{ matrix.distro }}
+
+  popup:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        distro: [debian13, fedora43, fedora44, ubuntu2604, fedora45,
+                 debian13-kde, fedora43-kde, fedora44-kde, fedora45-kde, ubuntu2604-kde, arch-kde]
+    steps:
+      - uses: actions/checkout@v7
+      - run: tests/popup.sh ${{ matrix.distro }}
+      # The logs say what the summary can't
+      - if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: popup-${{ matrix.distro }}
+          path: shots/${{ matrix.distro }}
