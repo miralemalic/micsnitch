@@ -21,12 +21,12 @@ GNOME **48 to 51**, KDE **Plasma 6**, **Sway**, **Hyprland**, **niri** or
 
 | Tested on    | GNOME | Plasma | WirePlumber | PipeWire |
 |--------------|-------|--------|-------------|----------|
-| Fedora 45    | 51.0  | 6.7.5  | 0.5.18      | 1.6.9    |
-| Fedora 44    | 50.5  | 6.7.5  | 0.5.17      | 1.6.9    |
+| Fedora 45    | 51.1  | 6.8.2  | 0.5.19      | 1.6.11   |
+| Fedora 44    | 50.6  | 6.8.2  | 0.5.19      | 1.6.11   |
 | Fedora 43    | 49.10 | 6.7.5  | 0.5.14      | 1.4.11   |
 | Ubuntu 26.04 | 50.1  | 6.6.6  | 0.5.13      | 1.6.2    |
 | Debian 13    | 48.7  | 6.3.6  | 0.5.8       | 1.4.2    |
-| Arch         | 50.5  | 6.7.5  | 0.5.18      | 1.6.9    |
+| Arch         | 51.1  | 6.8.2  | 0.5.19      | 1.6.11   |
 
 Each one runs the tests in a container with a fake microphone, and a GNOME
 Shell or a KWin no one can see. MicSnitch also runs on real hardware every
