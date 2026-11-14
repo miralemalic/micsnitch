@@ -29,8 +29,10 @@ check('an answer within the first moment is ignored', responses, []);
 const loop = new GLib.MainLoop(null, false);
 GLib.timeout_add(GLib.PRIORITY_DEFAULT, 1000, () => {
     dialog._remember.active = true;
+    dialog._untilLogout.active = true;
+    check('ticking one Remember box clears the other', dialog._remember.active, false);
     dialog._respond(true);
-    check('a ticked Remember box comes with the answer', responses, [[true, true]]);
+    check('the ticked box comes with the answer', responses, [[true, 'login']]);
     check('answering closes the popup', closed, true);
     loop.quit();
     return GLib.SOURCE_REMOVE;

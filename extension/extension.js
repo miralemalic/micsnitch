@@ -9,10 +9,11 @@ import St from 'gi://St';
 import {Extension, gettext as _} from 'resource:///org/gnome/shell/extensions/extension.js';
 
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
+import * as MessageTray from 'resource:///org/gnome/shell/ui/messageTray.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 import {QuickMenuToggle, SystemIndicator} from 'resource:///org/gnome/shell/ui/quickSettings.js';
 
-import {canUndo, describeEvent} from './core/activity.js';
+import {canUndo, describeEvent, describeNotice} from './core/activity.js';
 import {Handler} from './core/handler.js';
 import {RequestDialog} from './dialog.js';
 
@@ -121,6 +122,7 @@ export default class MicSnitchExtension extends Extension {
         this._handler = new Handler(this._settings, {
             isLocked: () => Main.sessionMode.isLocked,
             ask: (app, kind, source) => new RequestDialog(app, kind, source),
+            notify: notice => this._notify(notice),
         }, this._previous);
         this._previous = null;
         const block = () => {
@@ -131,6 +133,18 @@ export default class MicSnitchExtension extends Extension {
         this._indicator = new Indicator(this);
         Main.panel.statusArea.quickSettings.addExternalIndicator(this._indicator);
         this._handler.start();
+    }
+
+    // The button goes to whichever handler runs by then: every lock brings a new one
+    _notify(notice) {
+        const {title, body, label, urgent} = describeNotice(notice, _);
+        const source = MessageTray.getSystemSource();
+        const notification = new MessageTray.Notification({
+            source, title, body, iconName: 'audio-input-microphone-symbolic',
+            urgency: urgent ? MessageTray.Urgency.CRITICAL : MessageTray.Urgency.NORMAL,
+        });
+        notification.addAction(label, () => this._handler?.act(notice));
+        source.addNotification(notification);
     }
 
     disable() {

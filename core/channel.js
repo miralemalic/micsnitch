@@ -23,6 +23,7 @@ export class Channel extends GObject.Object {
     static [GObject.signals] = {
         'request': {param_types: [GObject.TYPE_UINT, GObject.TYPE_JSOBJECT]},
         'withdrawn': {param_types: [GObject.TYPE_UINT]},
+        'refused': {param_types: [GObject.TYPE_JSOBJECT]},
         'recordings-changed': {},
         'stopped': {param_types: [GObject.TYPE_JSOBJECT]},
     };
@@ -152,12 +153,14 @@ export class Channel extends GObject.Object {
                 this.#setActive(id);
                 return;
             }
-            if (!['micsnitch.request', 'micsnitch.recording'].includes(key))
+            if (!['micsnitch.request', 'micsnitch.refused', 'micsnitch.recording'].includes(key))
                 return;
             try {
                 const data = JSON.parse(value);
                 if (key === 'micsnitch.request')
                     this.emit('request', id, data);
+                else if (key === 'micsnitch.refused')
+                    this.emit('refused', data);
                 else if (key === 'micsnitch.recording') {
                     this.#recordings.set(id, data);
                     this.emit('recordings-changed');

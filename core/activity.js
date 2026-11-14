@@ -24,9 +24,33 @@ export function describeEvent(event, _) {
     const kind = event.kind === 'mic' ? _('Microphone') : _('System audio');
     const reason = {
         remembered: _('remembered rule'), system: _('system audio setting'),
+        off: _('microphone off'), forged: _('not by you'),
     }[event.reason];
     return [GLib.DateTime.new_from_unix_local(event.time).format('%H:%M'),
         action, kind, reason, event.undone && _('undone')].filter(Boolean).join(' · ');
+}
+
+// What a notification says when something was decided without a popup,
+// and what its one button is called
+export function describeNotice(notice, _) {
+    const name = notice.app ?? _('An unnamed app');
+    if (notice.what === 'forged') {
+        return {
+            title: _('%s is recording without your permission').replace('%s', name),
+            body: _('Something answered MicSnitch in your place.'),
+            label: _('Stop'),
+            urgent: true,
+        };
+    }
+    const title = notice.kind === 'mic'
+        ? _('%s was denied the microphone')
+        : _('%s was denied system audio');
+    return {
+        title: title.replace('%s', name),
+        body: _('You told MicSnitch to remember that.'),
+        label: _('Undo'),
+        urgent: false,
+    };
 }
 
 // Allows and denials that point at an app can be taken back

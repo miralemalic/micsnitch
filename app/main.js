@@ -14,6 +14,7 @@ import Gtk from 'gi://Gtk?version=4.0';
 import LayerShell from 'gi://Gtk4LayerShell?version=1.0';
 import System from 'system';
 
+import {describeNotice} from './core/activity.js';
 import {Handler} from './core/handler.js';
 import {RequestDialog} from './dialog.js';
 import {Tray} from './tray.js';
@@ -23,6 +24,27 @@ const {gettext: _} = Gettext.domain('micsnitch');
 const DIR = GLib.path_get_dirname(GLib.filename_from_uri(import.meta.url)[0]);
 const SCHEMA = 'org.gnome.shell.extensions.micsnitch';
 const SCREENSAVER = 'org.freedesktop.ScreenSaver';
+// Sway, Hyprland and niri leave locking to a program like these, and it tells nobody.
+// While one of ours runs, the screen is locked.
+const LOCK_SCREENS = ['swaylock', 'hyprlock', 'gtklock', 'waylock'];
+
+function lockScreenRuns() {
+    const uid = Gio.Credentials.new().get_unix_user();
+    const decoder = new TextDecoder();
+    for (const info of Gio.File.new_for_path('/proc').enumerate_children(
+        'standard::name,unix::uid', Gio.FileQueryInfoFlags.NONE, null)) {
+        if (info.get_attribute_uint32('unix::uid') !== uid)
+            continue;
+        try {
+            const [, name] = GLib.file_get_contents(`/proc/${info.get_name()}/comm`);
+            if (LOCK_SCREENS.includes(decoder.decode(name).trim()))
+                return true;
+        } catch {
+            // Not a process, or one that just ended
+        }
+    }
+    return false;
+}
 
 // One history per login. If Plasma doesn't say which login this is,
 // the compositor's socket will do: it's new every time.
@@ -56,6 +78,7 @@ class MicSnitch extends Adw.Application {
     _init() {
         super._init({application_id: 'io.github.miralemalic.MicSnitch'});
         this._locked = false;
+        this._notices = new Map();
     }
 
     vfunc_startup() {
@@ -71,9 +94,18 @@ class MicSnitch extends Adw.Application {
         this._settings = loadSettings();
         this._handler = new Handler(this._settings, {
             session: session(),
-            isLocked: () => this._locked,
+            isLocked: () => this._isLocked(),
             ask: (app, kind, source) => new RequestDialog(this, app, kind, source),
+            notify: notice => this._notify(notice),
         });
+        // Gio wants a notification's button to be an action with a name
+        const act = new Gio.SimpleAction({name: 'act', parameter_type: new GLib.VariantType('s')});
+        act.connect('activate', (_a, id) => {
+            const notice = this._notices.get(id.unpack());
+            if (notice)
+                this._handler?.act(notice);
+        });
+        this.add_action(act);
         this._tray = new Tray(this.get_dbus_connection(), token => {
             this._token = token;
             this.activate();
@@ -150,6 +182,35 @@ class MicSnitch extends Adw.Application {
         this._handler.sync();
     }
 
+    // Nothing says when a lock screen of the quiet kind goes away,
+    // so look again every second until it has
+    _isLocked() {
+        if (this._locked)
+            return true;
+        if (!lockScreenRuns())
+            return false;
+        this._lockWatch ||= GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 1, () => {
+            if (lockScreenRuns())
+                return GLib.SOURCE_CONTINUE;
+            this._lockWatch = 0;
+            this._handler?.sync();
+            return GLib.SOURCE_REMOVE;
+        });
+        return true;
+    }
+
+    // One per app or stream, a newer one takes the place of the last
+    _notify(notice) {
+        const {title, body, label, urgent} = describeNotice(notice, _);
+        const notification = Gio.Notification.new(title);
+        notification.set_body(body);
+        notification.set_priority(urgent
+            ? Gio.NotificationPriority.URGENT : Gio.NotificationPriority.NORMAL);
+        notification.add_button_with_target(label, 'app.act', new GLib.Variant('s', notice.id));
+        this._notices.set(notice.id, notice);
+        this.send_notification(notice.id, notification);
+    }
+
     _syncTray() {
         if (!this._handler)
             return;
@@ -161,7 +222,7 @@ class MicSnitch extends Adw.Application {
         else if (this._settings.get_boolean('disable-microphone'))
             this._tray.show('microphone-sensitivity-muted', _('Microphone off'));
         else if (names.length)
-            this._tray.show('audio-input-microphone', _('Recording: %s').replace('%s', names.join(', ')));
+            this._tray.show('media-record', _('Recording: %s').replace('%s', names.join(', ')));
         else
             this._tray.show('audio-input-microphone', _('No apps recording'));
     }

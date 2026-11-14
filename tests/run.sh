@@ -175,6 +175,8 @@ wait "$rec"
 check "the global switch cuts a running recording" "$(refused "$?")" error
 timeout -k 1 4 pw-record --target fake-mic /tmp/blocked.wav >/dev/null 2>&1
 check "the global switch refuses new recordings" "$(refused "$?")" error
+check "and the popup hears who was turned away" \
+    "$(grep -c "^update: id:[0-9]* key:'micsnitch.refused'" /tmp/watch.txt)" 1
 say 0 micsnitch.block 0
 
 echo "direct links"
@@ -223,10 +225,25 @@ check "PulseAudio module loading returns an error" "$(refused "$code")" error
 check "the module error explains permission denial" "$(grep -qi 'denied' <<<"$out" && echo denied || echo "$out")" denied
 
 echo "WirePlumber restart"
+timeout -k 1 30 pw-record --target fake-mic /tmp/waiting.wav >/dev/null 2>&1 & waiting=$!
+wait_request
+waiting_req=$req
 stop_wireplumber
 check "the protection marker disappears when its owner exits" \
     "$(active && echo stale || echo gone)" gone
 check "apps connected during the restart lose direct-link permission" "$(self_wire start_wireplumber)" refused
+# PipeWire kept the old request, and putting it up again unchanged would tell the popup nothing
+asked_again() {
+    awk -v row="id:$(field "$waiting_req" id) key:'micsnitch.request'" '
+        index($0, "remove: " row) { down = 1; up = 0 }
+        down && index($0, "update: " row) { up = 1 }
+        END { exit !up }' /tmp/watch.txt
+}
+wait_for asked_again
+check "a request waiting through the restart comes down and goes up again" "$?" 0
+answer "$waiting_req" deny
+wait "$waiting"
+check "and can still be answered" "$(refused "$?")" error
 feed_fake_mic
 record /tmp/restart.wav fake-mic 3 & rec=$!
 wait_request

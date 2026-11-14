@@ -1,7 +1,8 @@
 #!/bin/bash
 # Runs a command inside a throwaway container with its own PipeWire stack.
 #   tests/container.sh fedora44 tests/run.sh
-# A -gnome suffix (fedora44-gnome) adds GNOME Shell to the image, -kde adds KWin.
+# A -gnome suffix (fedora44-gnome) adds GNOME Shell to the image, -kde adds KWin,
+# and -sway, -niri or -cosmic one of those.
 # MICSNITCH=0 runs it without the policy installed, OUT=dir is mounted at /out.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -9,17 +10,20 @@ cd "$(dirname "$0")/.."
 distro=${1:?distro, e.g. fedora44}
 shift
 image=localhost/micsnitch-test:$distro
-base=${distro%-gnome}
-base=${base%-kde}
-gnome='' kde=''
+base=${distro%-*}
+gnome='' kde='' sway=''
 case $distro in
     *-gnome) gnome=1 ;;
     *-kde) kde=1 ;;
+    *-sway) sway=sway ;;
+    # These two want a screen to open their window on, and Sway can make one up
+    *-niri) sway='sway niri' ;;
+    *-cosmic) sway='sway cosmic-comp' ;;
 esac
 
 build() {
-    podman build -q -t "$image" --build-arg GNOME="$gnome" --build-arg KDE="$kde" "$@" \
-        tests/containers >/dev/null
+    podman build -q -t "$image" --build-arg GNOME="$gnome" --build-arg KDE="$kde" \
+        --build-arg SWAY="$sway" "$@" tests/containers >/dev/null
 }
 
 if ! podman image exists "$image"; then

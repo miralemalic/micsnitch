@@ -5,7 +5,7 @@
     <key name="rules" type="a{ss}">
       <default>{}</default>
       <summary>Remembered answers</summary>
-      <description>Maps “mic:” or “system:” plus an app to “allow” or “deny”.</description>
+      <description>Maps “mic:” or “system:” plus an app to “allow” or “deny”. A login after the answer means it only holds until that login ends.</description>
     </key>
     <key name="system-audio" type="b">
       <default>true</default>

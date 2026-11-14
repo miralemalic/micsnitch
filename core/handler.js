@@ -15,33 +15,57 @@ import {identify} from './identity.js';
 // so an answer also covers the same app for a little while after
 const FOLLOW_UP_US = 30 * GLib.USEC_PER_SEC;
 
+// Names this login for the answers that only hold until logout. Session numbers
+// start over at every boot, so the boot goes in too.
+function loginOf(session) {
+    const [, boot] = GLib.file_get_contents('/proc/sys/kernel/random/boot_id');
+    return `${new TextDecoder().decode(boot).trim()}/${session}`;
+}
+
 export class Handler {
-    // desktop has isLocked(), ask() for a popup like the ones in dialog.js and
-    // maybe a session name. previous is what stop() handed back last time.
+    // desktop has isLocked(), ask() for a popup like the ones in dialog.js,
+    // notify() for the notices in activity.js and maybe a session name.
+    // previous is what stop() handed back last time.
     constructor(settings, desktop, previous = {}) {
         this._settings = settings;
         this._desktop = desktop;
         this._blocked = false;
         this._queue = new Map();
         this._lastAnswers = new Map();
-        this._names = new Map();
+        // The names shown so far, or a lock turns Signal back into "Chromium input"
+        this._apps = previous.apps ?? new Map();
+        this._noticed = new Map();
+        this._refused = new Set();
+        // Every stream we said yes to. A cold start has to take whatever
+        // is recording already as it finds it.
+        this._known = previous.known ?? new Set();
+        this._watching = Boolean(previous.known);
         this._cancellable = new Gio.Cancellable();
-        this._activity = new Activity(desktop.session ?? (GLib.getenv('XDG_SESSION_ID') ||
-            String(Gio.Credentials.new().get_unix_pid())), previous.activity);
+        const session = desktop.session ?? (GLib.getenv('XDG_SESSION_ID') ||
+            String(Gio.Credentials.new().get_unix_pid()));
+        this._login = loginOf(session);
+        this._activity = new Activity(session, previous.activity);
         // Whatever we sent before a lock has to land before we say "ready"
         this._channel = new Channel(previous.writes);
         this._signals = [
             [this._channel, this._channel.connect('request',
                 (_c, id, request) => this._onRequest(id, request))],
             [this._channel, this._channel.connect('withdrawn', (_c, id) => this._onWithdrawn(id))],
-            [this._channel, this._channel.connect('stopped', (_c, recording) => this._activity.add({
-                app: this.nameOf(recording), kind: recording.kind,
-                source: recording.source, action: 'stop',
-            }))],
-            [this._channel, this._channel.connect('notify::active', () => this.sync())],
+            [this._channel, this._channel.connect('refused',
+                (_c, request) => this._onRefused(request))],
+            [this._channel, this._channel.connect('stopped',
+                (_c, recording) => this._onStopped(recording))],
+            [this._channel, this._channel.connect('recordings-changed', () => this._watch())],
+            [this._channel, this._channel.connect('notify::active', () => {
+                // A new gate has approved nothing yet
+                if (!this._channel.active)
+                    this._known.clear();
+                this.sync();
+            })],
             // The settings window asks for an undo here
             [settings, settings.connect('changed::undo', () => this._undoFromSettings())],
         ];
+        this._forgetLastLogin();
     }
 
     get channel() {
@@ -57,6 +81,7 @@ export class Handler {
         if (this._blocked === blocked)
             return;
         this._blocked = blocked;
+        this._refused.clear();
         this.sync();
     }
 
@@ -75,9 +100,10 @@ export class Handler {
             GLib.source_remove(this._retryId);
         this._retryId = 0;
         const dialog = this._dialog;
-        this._dialog = this._queue = this._lastAnswers = this._names = null;
+        const apps = this._apps;
+        this._dialog = this._queue = this._lastAnswers = this._apps = null;
         dialog?.dismiss();
-        return {writes, activity};
+        return {writes, activity, known: this._known, apps};
     }
 
     // When the gate comes or goes, the kill switch flips or the screen locks
@@ -95,13 +121,14 @@ export class Handler {
             this._channel.tell('ui', 'locked');
             return;
         }
-        this._channel.readiness();
+        // From here on a recording we didn't allow is one somebody else did
+        this._channel.readiness()?.then(() => (this._watching = true));
         this._next();
     }
 
     // The name the popup showed, which beats what an app calls itself
     nameOf(recording) {
-        return this._names?.get(recording.serial) ??
+        return this._apps?.get(recording.serial)?.name ??
             (recording.app || recording.flatpak || recording.binary || null);
     }
 
@@ -116,7 +143,7 @@ export class Handler {
         if (this._lastAnswers.get(event.key)?.allowed === allowed)
             this._lastAnswers.delete(event.key);
         const rules = this._settings.get_value('rules').deepUnpack();
-        if (rules[event.key] === event.action) {
+        if (rules[event.key]?.split(' ')[0] === event.action) {
             delete rules[event.key];
             this._settings.set_value('rules', new GLib.Variant('a{ss}', rules));
         }
@@ -125,6 +152,15 @@ export class Handler {
                 this._channel.stopRecording(node, recording.serial);
         }
         return this._activity.undo(event.id);
+    }
+
+    // The button on a notice: Stop for a recording nobody approved,
+    // Undo for a remembered no
+    act(notice) {
+        if (notice.what === 'forged')
+            this._channel.stopRecording(notice.node, notice.serial);
+        else
+            this.undo(this._activity.events.findLast(e => e.key === notice.key && canUndo(e))?.id);
     }
 
     // Cleared only once the list is saved, so the settings window shows it
@@ -158,6 +194,57 @@ export class Handler {
         this._next();
     }
 
+    // Turned away at the gate because the switch is off. One line per app will do.
+    async _onRefused(request) {
+        const app = await identify(request, this._cancellable);
+        const tried = `${request.kind}:${app.key ?? app.name}`;
+        if (!this._queue || this._refused.has(tried))
+            return;
+        this._refused.add(tried);
+        this._activity.add({
+            app: app.name, kind: request.kind, source: request.source,
+            action: 'deny', reason: 'off',
+        });
+    }
+
+    // Stop means stop: the app doesn't get back in on the last Allow
+    _onStopped(recording) {
+        const key = this._apps.get(recording.serial)?.key;
+        if (key)
+            this._lastAnswers.delete(`${recording.kind}:${key}`);
+        this._activity.add({
+            app: this.nameOf(recording), kind: recording.kind,
+            source: recording.source, action: 'stop',
+        });
+    }
+
+    // A recording we never said yes to: something else answered the gate
+    _watch() {
+        for (const [id, recording] of this._channel.recordings) {
+            const stream = `${recording.serial}:${recording.kind}`;
+            if (this._known.has(stream))
+                continue;
+            this._known.add(stream);
+            if (this._watching)
+                this._alarm(id, recording);
+        }
+    }
+
+    async _alarm(id, recording) {
+        const app = await identify(recording, this._cancellable);
+        if (!this._queue)
+            return;
+        this._apps.set(recording.serial, app);
+        this._activity.add({
+            app: app.name, kind: recording.kind, source: recording.source,
+            action: 'allow', reason: 'forged',
+        });
+        this._desktop.notify({
+            id: `forged ${recording.serial}`, what: 'forged', app: app.name,
+            kind: recording.kind, node: id, serial: recording.serial,
+        });
+    }
+
     _next() {
         if (!this._queue || this._desktop.isLocked() || !this._channel.active ||
             this._dialog || this._retryId)
@@ -169,12 +256,13 @@ export class Handler {
             if (!app)
                 return;
             const key = app.key && `${request.kind}:${app.key}`;
-            const rule = key && this._settings.get_value('rules').deepUnpack()[key];
+            const rule = key && this._rule(key);
             const last = key && this._lastAnswers.get(key);
-            if (request.kind === 'system' && !this._settings.get_boolean('system-audio')) {
-                this._answer(id, entry, true, 'system');
-            } else if (rule) {
+            // A remembered no still counts when system audio isn't asked about
+            if (rule) {
                 this._answer(id, entry, rule === 'allow', 'remembered');
+            } else if (request.kind === 'system' && !this._settings.get_boolean('system-audio')) {
+                this._answer(id, entry, true, 'system');
             } else if (last?.until > GLib.get_monotonic_time()) {
                 this._answer(id, entry, last.allowed, 'follow-up');
             } else {
@@ -199,7 +287,7 @@ export class Handler {
                     this._answer(other, entry, allowed);
             }
             if (remember && app.key)
-                this._remember(`${request.kind}:${app.key}`, allowed);
+                this._remember(`${request.kind}:${app.key}`, allowed, remember);
         });
         dialog.connect('closed', () => {
             if (this._dialog === dialog)
@@ -223,13 +311,18 @@ export class Handler {
     _answer(id, {app, request}, allowed, reason = 'once') {
         this._channel.answer(id, request.serial, request.kind, allowed);
         this._queue.delete(id);
-        this._names.set(request.serial, app.name);
-        if (this._names.size > 100)
-            this._names.delete(this._names.keys().next().value);
+        this._apps.set(request.serial, app);
+        if (this._apps.size > 100)
+            this._apps.delete(this._apps.keys().next().value);
+        if (allowed)
+            this._known.add(`${request.serial}:${request.kind}`);
 
         const key = app.key && `${request.kind}:${app.key}`;
-        if (key && (reason === 'once' || reason === 'follow-up'))
+        // Thirty seconds from the click. A follow-up doesn't buy more time.
+        if (key && reason === 'once')
             this._lastAnswers.set(key, {allowed, until: GLib.get_monotonic_time() + FOLLOW_UP_US});
+        if (reason === 'remembered' && !allowed)
+            this._snitch(key, app, request);
         // A follow-up repeats a decision that's already listed
         if (reason !== 'follow-up') {
             this._activity.add({
@@ -239,9 +332,39 @@ export class Handler {
         }
     }
 
-    _remember(key, allowed) {
+    // An app refused by a rule gets no popup, so say why it isn't working.
+    // Once per try, however often it knocks.
+    _snitch(key, app, request) {
+        const now = GLib.get_monotonic_time();
+        const quiet = this._noticed.get(key) > now;
+        this._noticed.set(key, now + FOLLOW_UP_US);
+        if (quiet)
+            return;
+        this._desktop.notify({
+            id: `denied ${key}`, what: 'denied', app: app.name, kind: request.kind, key,
+        });
+    }
+
+    // A rule reads "allow", or "allow <login>" when it only holds until logout
+    _rule(key) {
+        const rule = this._settings.get_value('rules').deepUnpack()[key] ?? '';
+        const [answer, login] = rule.split(' ');
+        return !login || login === this._login ? answer : '';
+    }
+
+    _remember(key, allowed, how) {
         const rules = this._settings.get_value('rules').deepUnpack();
-        rules[key] = allowed ? 'allow' : 'deny';
+        const answer = allowed ? 'allow' : 'deny';
+        rules[key] = how === 'always' ? answer : `${answer} ${this._login}`;
         this._settings.set_value('rules', new GLib.Variant('a{ss}', rules));
+    }
+
+    // Answers that were only good until an earlier logout
+    _forgetLastLogin() {
+        const rules = this._settings.get_value('rules').deepUnpack();
+        const kept = Object.entries(rules).filter(([, rule]) =>
+            [undefined, this._login].includes(rule.split(' ')[1]));
+        if (kept.length < Object.keys(rules).length)
+            this._settings.set_value('rules', new GLib.Variant('a{ss}', Object.fromEntries(kept)));
     }
 }

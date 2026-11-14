@@ -174,6 +174,8 @@ function ask (to, from)
   local id = to["bound-id"]
   local description = describe (to, from)
   if blocked then
+    -- Refused on the spot, but the popup still gets to list who tried
+    post_json (id, "micsnitch.refused", description)
     refuse (id, to)
     return
   end
@@ -265,9 +267,10 @@ end
 
 metadata_om:connect ("object-added", function (_, m)
   metadata = m
-  -- Recording rows left from before a restart get rebuilt from the links
+  -- Rows left from before a restart. Recordings get rebuilt from the links.
+  -- Requests have to come down too: putting one up again as it was tells nobody.
   for id, key in m:iterate (-1) do
-    if key == "micsnitch.recording" then
+    if id ~= 0 then
       post (id, key, nil)
     end
   end

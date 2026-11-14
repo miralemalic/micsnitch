@@ -14,8 +14,10 @@ function nameOf(key) {
     const [kind, value] = key.split(/:(.*)/);
     if (kind === 'exe')
         return GLib.path_get_basename(value);
+    // A script goes by its launcher, which comes before the interpreter
+    const id = kind === 'script' ? value.split(':')[0] : value;
     // Flatpak and launcher IDs have a name, "program / name" claims don't
-    const info = value.includes('/') ? null : GioUnix.DesktopAppInfo.new(`${value}.desktop`);
+    const info = id.includes('/') ? null : GioUnix.DesktopAppInfo.new(`${id}.desktop`);
     return info?.get_name() ?? value;
 }
 
@@ -39,12 +41,14 @@ export function ruleRows(settings, _) {
     const rules = settings.get_value('rules').deepUnpack();
     return Object.entries(rules).map(([rule, answer]) => {
         const [kind, key] = rule.split(/:(.*)/);
+        // "allow", or "allow <login>" when it only holds until logout
+        const [verdict, login] = answer.split(' ');
+        const always = verdict === 'allow' ? _('Always allowed') : _('Always denied');
+        const today = verdict === 'allow'
+            ? _('Allowed until you log out') : _('Denied until you log out');
         const row = new Adw.ActionRow({
             title: nameOf(key),
-            subtitle: [
-                kindName(kind, _),
-                answer === 'allow' ? _('Always allowed') : _('Always denied'),
-            ].join(' · '),
+            subtitle: [kindName(kind, _), login ? today : always].join(' · '),
             tooltip_text: key.split(/:(.*)/)[1],
             use_markup: false,
         });

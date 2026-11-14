@@ -1,16 +1,18 @@
 #!/bin/bash
-# The KDE app on a hidden KWin, next to a private audio stack.
+# The tray app on a hidden KWin, next to a private audio stack. Or on Sway,
+# niri or COSMIC: tests/kde.sh sway.
 # Runs inside a test container; use tests/popup.sh DISTRO-kde to start it.
 set -euo pipefail
 # shellcheck source=tests/lib.sh
 . tests/lib.sh
 out=${OUT:-/out}
+desktop=${1:-kde}
 # The logs are read for errors at the end, so start them fresh
-rm -f "$out/app.log" "$out/kwin.log"
+rm -f "$out/app.log" "$out/compositor.log"
 
 gjs -m tests/core.mjs
 
-export XDG_CURRENT_DESKTOP=KDE WAYLAND_DISPLAY=wayland-0
+export XDG_CURRENT_DESKTOP=$desktop
 tools/install.sh --no-restart >/dev/null
 home=$HOME/.local/share/micsnitch
 settings=$HOME/.config/micsnitch/settings.ini
@@ -19,10 +21,28 @@ feed_fake_mic
 # KWin wants a system bus, even an empty one
 mkdir -p /run/dbus
 dbus-daemon --system --fork
-start_kwin() {
-    kwin_wayland --virtual "$@" --width 1280 --height 800 --socket wayland-0 >>"$out/kwin.log" 2>&1 &
-    kwin=$!
-    wait_for test -S "$XDG_RUNTIME_DIR/wayland-0"
+start_compositor() {
+    if [ "$desktop" = kde ]; then
+        kwin_wayland --virtual "$@" --width 1280 --height 800 --socket wayland-0 \
+            >>"$out/compositor.log" 2>&1 &
+        compositor=$!
+        export WAYLAND_DISPLAY=wayland-0
+    else
+        # Sway leaves wayland-0 alone and takes the next one
+        WLR_BACKENDS=headless WLR_RENDERER=pixman WLR_LIBINPUT_NO_DEVICES=1 sway -c /dev/null \
+            >>"$out/compositor.log" 2>&1 &
+        compositor=$!
+        export WAYLAND_DISPLAY=wayland-1
+    fi
+    wait_for test -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY"
+    # niri and COSMIC open a window on that Sway and run inside it
+    case $desktop in
+        niri) niri -c /dev/null >>"$out/compositor.log" 2>&1 & ;;
+        cosmic) cosmic-comp >>"$out/compositor.log" 2>&1 & ;;
+        *) return ;;
+    esac
+    export WAYLAND_DISPLAY=wayland-2
+    wait_for test -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY"
 }
 # Like the systemd service: in the background, no window
 start_app() {
@@ -31,9 +51,9 @@ start_app() {
 }
 gjs -m tests/kde-session.mjs >"$out/session.log" 2>&1 &
 session=$!
-start_kwin --no-lockscreen
+start_compositor --no-lockscreen
 start_app
-trap 'kill "$app" "$kwin" "$session" 2>/dev/null || true' EXIT
+trap 'kill "$app" "$compositor" "$session" 2>/dev/null || true' EXIT
 
 # Each step builds on the one before, so stop at the first failure
 check() {
@@ -83,10 +103,26 @@ tray() {
 }
 tray_says() {
     gdbus call --session --dest "$(tray)" --object-path /StatusNotifierItem \
-        --method org.freedesktop.DBus.Properties.Get org.kde.StatusNotifierItem ToolTip
+        --method org.freedesktop.DBus.Properties.Get org.kde.StatusNotifierItem "${1:-ToolTip}"
+}
+notifications() {
+    gdbus call --session --dest org.freedesktop.Notifications \
+        --object-path /org/freedesktop/Notifications --method org.freedesktop.Notifications."$1" "${@:2}"
+}
+notified() { notifications Shown | grep -qF "$1"; }
+remember() { printf "[micsnitch]\nrules={'mic:app:electron / %s': '%s'}\n" "$1" "$2" >"$settings"; }
+reasons() {
+    python3 -c '
+import json, sys
+print(" ".join(e.get("reason", "") for e in json.load(open(sys.argv[1]))["events"] if e["app"] == sys.argv[2]))' \
+        "$XDG_RUNTIME_DIR/micsnitch-activity.json" "$1"
 }
 
-echo "$(kwin_wayland --version 2>/dev/null)"
+case $desktop in
+    kde) kwin_wayland --version 2>/dev/null ;;
+    cosmic) echo "cosmic-comp, in $(sway --version)" ;;
+    *) "$desktop" --version ;;
+esac
 check 'the installer sets the app to start with the session' \
     "$(readlink "$HOME/.config/systemd/user/graphical-session.target.wants/micsnitch.service")" \
     ../micsnitch.service
@@ -113,6 +149,7 @@ expect_denied 'Deny stops Slack with an error' "$second"
 soon recordings_are 1
 check 'Discord is recording' "$(entries micsnitch.recording | grep -c '"Discord"')" 1
 check 'the tray says who is recording' "$(tray_says | grep -c 'Recording: Discord')" 1
+check 'and its icon shows a recording is on' "$(tray_says IconName | grep -c media-record)" 1
 check 'recent activity has the allow and the deny' "$(events)" \
     '[["Discord", "allow", false], ["Slack", "deny", false]]'
 
@@ -154,8 +191,11 @@ press Stop Repeat
 expect_denied 'both of its recordings can be stopped' "$repeat1"
 expect_denied 'and both end' "$repeat2"
 
+check 'with nobody recording the tray icon is the plain one again' \
+    "$(tray_says IconName | grep -c audio-input-microphone)" 1
+
 # A Remember tick, the way the popup saves it
-printf "[micsnitch]\nrules={'mic:app:electron / Remembered': 'allow'}\n" >"$settings"
+remember Remembered allow
 soon shows 'electron / Remembered'
 check 'the window lists remembered apps' "$(shows 'electron / Remembered' && echo listed)" listed
 recorder Remembered /tmp/remembered.wav >"$out/remembered.log" 2>&1 & remembered=$!
@@ -188,12 +228,64 @@ expect_denied 'switching the microphone off refuses what is waiting' "$stray"
 check 'and the tray says so' "$(tray_says | grep -c 'Microphone off')" 1
 recorder Blocked /tmp/blocked.wav >"$out/blocked.log" 2>&1 & blocked=$!
 expect_denied 'new recordings are refused while it is off' "$blocked"
+turned_away() { [ "$(reasons Blocked)" = off ]; }
+soon turned_away
+check 'and who tried is listed, once' "$(reasons Blocked)" off
 press Microphone
 soon block_is 0
+
+# Sway, Hyprland and niri lock with a program like swaylock, which tells nobody
+printf '#!/bin/sh\nwhile :; do sleep 1; done\n' >/tmp/swaylock
+chmod +x /tmp/swaylock
+/tmp/swaylock & locker=$!
+recorder Remembered /tmp/quiet.wav >"$out/quiet.log" 2>&1 & quiet=$!
+soon requests_are 1
+sleep 3
+check 'a lock screen that tells nobody still holds requests' "$(count micsnitch.recording)" 0
+kill "$locker"
+soon recordings_are 1
+check 'and they go on once it is gone' "$(count micsnitch.recording)" 1
+press Stop Remembered
+expect_denied 'the recording allowed after it can be stopped' "$quiet"
 
 press Forget Remembered
 soon forgotten Remembered
 check 'Forget drops a remembered app' "$(forgotten Remembered && echo gone)" gone
+
+# A remembered no gets no popup, so a notification has to say why the app is stuck
+remember Banned deny
+soon shows 'electron / Banned'
+recorder Banned /tmp/banned.wav >"$out/banned.log" 2>&1 & banned=$!
+expect_denied 'an app with a remembered no is refused' "$banned"
+soon notified 'Banned was denied the microphone'
+check 'and a notification says so' "$(notified 'Banned was denied the microphone' && echo told)" told
+notifications Press 'Banned was denied the microphone' >/dev/null
+soon forgotten Banned
+check 'Undo on the notification forgets the answer' "$(forgotten Banned && echo gone)" gone
+
+# An answer that was only good until an earlier logout
+remember Stale 'allow another-login'
+recorder Stale /tmp/stale.wav >"$out/stale.log" 2>&1 & stale=$!
+soon asks Stale
+check 'an answer from an earlier login asks again' "$(asks Stale && echo yes)" yes
+sleep 1
+press Deny
+expect_denied 'and can be refused' "$stale"
+
+# Something answers the gate while the popup is still asking
+recorder Forger /tmp/forger.wav >"$out/forger.log" 2>&1 & forger=$!
+soon asks Forger
+read -r node serial < <(entries micsnitch.request | python3 -c '
+import json, sys
+e = json.load(sys.stdin)[0]
+print(e["id"], e["value"]["serial"])')
+pw-metadata -n micsnitch "$node" micsnitch.answer "allow $serial mic" >/dev/null
+soon notified 'Forger is recording without your permission'
+listed() { [ "$(reasons Forger)" = forged ]; }
+soon listed
+check 'a recording nobody approved raises the alarm' "$(reasons Forger)" forged
+notifications Press 'Forger is recording without your permission' >/dev/null
+expect_denied 'and Stop on the alarm ends it' "$forger"
 
 kill -TERM "$app"
 wait "$app" || true
@@ -206,18 +298,33 @@ soon ui_is ready
 soon shows 'Recent Activity'
 check "a restarted app still lists this login's decisions" "$(shows 'Slack' && echo listed)" listed
 
-# A real Plasma lock, from KWin itself. The test can't unlock it.
-kill "$app" "$session" "$kwin"
-wait "$kwin" 2>/dev/null || true
-start_kwin
-start_app
-soon ui_is ready
-gdbus call --session --dest org.freedesktop.ScreenSaver --object-path /org/freedesktop/ScreenSaver \
-    --method org.freedesktop.ScreenSaver.Lock >/dev/null
-soon ui_is locked
-check "KWin's own lock screen holds requests too" "$(ui)" locked
+if [ "$desktop" = kde ]; then
+    # A real Plasma lock, from KWin itself. The test can't unlock it.
+    kill "$app" "$session" "$compositor"
+    wait "$compositor" 2>/dev/null || true
+    start_compositor
+    start_app
+    soon ui_is ready
+    gdbus call --session --dest org.freedesktop.ScreenSaver --object-path /org/freedesktop/ScreenSaver \
+        --method org.freedesktop.ScreenSaver.Lock >/dev/null
+    soon ui_is locked
+    check "KWin's own lock screen holds requests too" "$(ui)" locked
+else
+    # The real swaylock this time. A signal is its way of being unlocked by a test.
+    remember Remembered allow
+    swaylock >>"$out/compositor.log" 2>&1 & locker=$!
+    sleep 2
+    recorder Remembered /tmp/swaylock.wav >"$out/swaylock.log" 2>&1 & held=$!
+    soon requests_are 1
+    sleep 3
+    check 'the real swaylock holds a remembered request' "$(count micsnitch.recording)" 0
+    kill -USR1 "$locker"
+    soon recordings_are 1
+    check 'and unlocking lets it through' "$(count micsnitch.recording)" 1
+    kill "$held"
+fi
 
 # GTK grumbles about every layer window; that one is GTK's, not ours
 check 'the app logged no errors' \
     "$(grep -E 'JS ERROR|JS WARNING|CRITICAL' "$out/app.log" | grep -vc 'set_a11y_properties')" 0
-echo 'kde checks passed'
+echo "$desktop checks passed"

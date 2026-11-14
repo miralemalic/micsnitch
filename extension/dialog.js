@@ -17,7 +17,7 @@ const ARM_DELAY_MS = 750;
 
 export const RequestDialog = GObject.registerClass({
     Signals: {
-        'response': {param_types: [GObject.TYPE_BOOLEAN, GObject.TYPE_BOOLEAN]},
+        'response': {param_types: [GObject.TYPE_BOOLEAN, GObject.TYPE_STRING]},
     },
 }, class RequestDialog extends ModalDialog.ModalDialog {
     _init(app, kind, source) {
@@ -48,11 +48,23 @@ export const RequestDialog = GObject.registerClass({
 
         // Nothing to go by, nothing to remember
         if (app.key) {
-            this._remember = new CheckBox.CheckBox(app.verified
-                ? _('Remember for %s').format(app.program ?? name)
-                : _('Remember for anything calling itself %s').format(app.claim ?? name));
-            this._remember.add_style_class_name('micsnitch-remember');
-            content.add_child(this._remember);
+            content.add_child(new St.Label({
+                text: app.verified
+                    ? _('Remember for %s').format(app.program ?? name)
+                    : _('Remember for anything calling itself %s').format(app.claim ?? name),
+            }));
+            this._untilLogout = new CheckBox.CheckBox(_('Until I log out'));
+            this._remember = new CheckBox.CheckBox(_('Always'));
+            // One or neither, never both
+            for (const [box, other] of [[this._untilLogout, this._remember],
+                [this._remember, this._untilLogout]]) {
+                box.add_style_class_name('micsnitch-remember');
+                box.connect('notify::checked', () => {
+                    if (box.checked)
+                        other.checked = false;
+                });
+                content.add_child(box);
+            }
         }
 
         const buttons = [
@@ -84,7 +96,8 @@ export const RequestDialog = GObject.registerClass({
     _respond(allowed) {
         if (this._armId)
             return;
-        this.emit('response', allowed, this._remember?.checked ?? false);
+        const login = this._untilLogout?.checked ? 'login' : '';
+        this.emit('response', allowed, this._remember?.checked ? 'always' : login);
         this.close();
     }
 

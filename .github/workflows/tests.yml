@@ -1,5 +1,5 @@
 # The same tests as on your own machine: rootless Podman, a fake microphone,
-# and a GNOME Shell or a KWin no one can see.
+# and a GNOME Shell, a KWin or a Sway no one can see.
 name: Tests
 
 on:
@@ -34,7 +34,8 @@ jobs:
       fail-fast: false
       matrix:
         distro: [debian13, fedora43, fedora44, ubuntu2604, fedora45,
-                 debian13-kde, fedora43-kde, fedora44-kde, fedora45-kde, ubuntu2604-kde, arch-kde]
+                 debian13-kde, fedora43-kde, fedora44-kde, fedora45-kde, ubuntu2604-kde, arch-kde,
+                 debian13-sway, fedora44-sway, arch-sway, fedora44-niri, fedora44-cosmic]
     steps:
       - uses: actions/checkout@v7
       - run: tests/popup.sh ${{ matrix.distro }}

@@ -71,6 +71,9 @@ undo_in_menu() {
 stop_first_recording() {
     shell "$toggle._recordings._getMenuItems()[0].get_children().find(c => c.get_label?.() === 'Stop').emit('clicked', 1)" >/dev/null
 }
+notices='Main.messageTray.getSources().flatMap(s => s.notifications)'
+notice() { echo "$notices.find(n => n.title === '$1')"; }
+rule() { shell "$obj._settings.get_value('rules').deepUnpack()['mic:app:electron / $1'] ?? 'none'"; }
 
 wait_shell '1' 1
 echo "$(gnome-shell --version)"
@@ -194,6 +197,63 @@ wait_shell "$obj._settings.get_string('undo')" ''
 check 'and forgets the remembered answer' \
     "$(shell "Object.keys($obj._settings.get_value('rules').deepUnpack()).length")" 0
 
+# Remember until logout, with the other box ticked first to see it give way
+recorder Daily /tmp/daily.wav >"$out/daily.log" 2>&1 & daily=$!
+wait_shell "$h._dialog != null" true
+check 'ticking one Remember box clears the other' \
+    "$(shell "$h._dialog._remember.checked = true; $h._dialog._untilLogout.checked = true; $h._dialog._remember.checked")" false
+sleep 1
+shell "$h._dialog._respond(true)" >/dev/null
+wait_shell "$h._channel.recordings.size" 1
+check 'an answer until logout is saved with this login' "$(rule Daily | grep -c '^allow [^ ]*$')" 1
+stop_first_recording
+expect_denied 'its recording can be stopped' "$daily"
+recorder Daily /tmp/daily2.wav >>"$out/daily.log" 2>&1 & daily=$!
+wait_shell "$h._activity.events.some(e => e.app === 'Daily' && e.reason === 'remembered')" true
+check 'and it answers the next request without a popup' "$(shell "$h._dialog == null")" true
+wait_shell "$h._channel.recordings.size" 1
+stop_first_recording
+expect_denied 'which can be stopped too' "$daily"
+
+# A remembered no gets no popup, so a notification has to say why the app is stuck
+recorder Banned /tmp/banned.wav >"$out/banned.log" 2>&1 & banned=$!
+wait_shell "$h._dialog != null" true
+sleep 1
+shell "$h._dialog._remember.checked = true; $h._dialog._respond(false)" >/dev/null
+expect_denied 'a remembered Deny refuses the app' "$banned"
+recorder Banned /tmp/banned2.wav >>"$out/banned.log" 2>&1 & banned=$!
+expect_denied 'and the next time without a popup' "$banned"
+wait_shell "$(notice 'Banned was denied the microphone') != null" true
+check 'a notification says who was refused' "$(shell "$h._dialog == null")" true
+shell "$(notice 'Banned was denied the microphone').actions[0].activate()" >/dev/null
+wait_shell "$h._activity.events.some(e => e.app === 'Banned' && e.undone)" true
+check 'Undo on the notification forgets the answer' "$(rule Banned)" none
+
+# Something answers the gate while the popup is still asking
+recorder Forger /tmp/forger.wav >"$out/forger.log" 2>&1 & forger=$!
+wait_shell "$h._dialog != null" true
+read -r node serial < <(entries micsnitch.request | python3 -c '
+import json, sys
+e = json.load(sys.stdin)[0]
+print(e["id"], e["value"]["serial"])')
+pw-metadata -n micsnitch "$node" micsnitch.answer "allow $serial mic" >/dev/null
+wait_shell "$(notice 'Forger is recording without your permission') != null" true
+wait_shell "$h._activity.events.some(e => e.app === 'Forger' && e.reason === 'forged')" true
+check 'a recording nobody approved raises the alarm' "$?" 0
+shell "$(notice 'Forger is recording without your permission').actions[0].activate()" >/dev/null
+expect_denied 'and Stop on the alarm ends it' "$forger"
+
+# With the microphone off nobody is asked, but who tried is still listed
+gsettings set org.gnome.desktop.privacy disable-microphone true
+wait_shell "$h._blocked" true
+recorder Nosy /tmp/nosy.wav >"$out/nosy.log" 2>&1 & nosy=$!
+expect_denied 'the switch refuses an app' "$nosy"
+wait_shell "$h._activity.events.some(e => e.app === 'Nosy' && e.reason === 'off')" true
+check 'and the app is listed as turned away' \
+    "$(shell "$h._activity.events.filter(e => e.app === 'Nosy').length")" 1
+gsettings set org.gnome.desktop.privacy disable-microphone false
+wait_shell "$h._blocked" false
+
 recorder Unremembered /tmp/disable.wav >"$out/disable.log" 2>&1 & disabled=$!
 wait_shell "$h._dialog != null" true
 before=$(shell 'Main.modalCount')
@@ -225,8 +285,10 @@ check 'settings list the remembered app' \
 check 'settings list recent decisions, newest first' \
     "$(grep -E ' · (Allowed|Denied|Stopped) · ' <<<"$rows" | head -1 | cut -d' ' -f1)" Unremembered
 check 'settings offer Undo on a decision' "$(grep -c '^Unremembered | .*\[Undo\]$' <<<"$rows")" 1
+check 'settings say which answers end with the login' \
+    "$(grep -c '^electron / Daily | Microphone · Allowed until you log out$' <<<"$rows")" 1
 check 'settings show what was undone, without Undo' \
-    "$(grep ' · undone' <<<"$rows" | grep -vc '\[Undo\]')" 2
+    "$(grep ' · undone' <<<"$rows" | grep -vc '\[Undo\]')" 3
 check 'GNOME Shell logged no errors from MicSnitch' \
     "$(grep -A25 -E 'JS ERROR|JS WARNING|Gjs-CRITICAL' "$out/shell.log" | grep -ci micsnitch)" 0
 echo 'popup checks passed'

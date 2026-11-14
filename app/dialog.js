@@ -23,7 +23,7 @@ function label(text, css_classes = []) {
 
 export const RequestDialog = GObject.registerClass({
     Signals: {
-        'response': {param_types: [GObject.TYPE_BOOLEAN, GObject.TYPE_BOOLEAN]},
+        'response': {param_types: [GObject.TYPE_BOOLEAN, GObject.TYPE_STRING]},
         'closed': {},
     },
 }, class RequestDialog extends Gtk.Window {
@@ -60,11 +60,24 @@ export const RequestDialog = GObject.registerClass({
 
         // Nothing to go by, nothing to remember
         if (app.key) {
-            const remember = app.verified
+            box.append(label(app.verified
                 ? _('Remember for %s').replace('%s', app.program ?? name)
-                : _('Remember for anything calling itself %s').replace('%s', app.claim ?? name);
-            this._remember = new Gtk.CheckButton({label: remember, halign: Gtk.Align.CENTER});
-            box.append(this._remember);
+                : _('Remember for anything calling itself %s').replace('%s', app.claim ?? name)));
+            this._untilLogout = new Gtk.CheckButton({label: _('Until I log out')});
+            this._remember = new Gtk.CheckButton({label: _('Always')});
+            const choices = new Gtk.Box({
+                orientation: Gtk.Orientation.VERTICAL, halign: Gtk.Align.CENTER,
+            });
+            // One or neither, never both
+            for (const [tick, other] of [[this._untilLogout, this._remember],
+                [this._remember, this._untilLogout]]) {
+                tick.connect('notify::active', () => {
+                    if (tick.active)
+                        other.active = false;
+                });
+                choices.append(tick);
+            }
+            box.append(choices);
         }
 
         const deny = new Gtk.Button({label: _('Deny')});
@@ -111,7 +124,8 @@ export const RequestDialog = GObject.registerClass({
     _respond(allowed) {
         if (this._armId)
             return;
-        this.emit('response', allowed, this._remember?.active ?? false);
+        const login = this._untilLogout?.active ? 'login' : '';
+        this.emit('response', allowed, this._remember?.active ? 'always' : login);
         this.close();
     }
 

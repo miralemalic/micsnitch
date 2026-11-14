@@ -1,7 +1,7 @@
 #!/bin/bash
 # Installs MicSnitch for the current user. No root needed.
-#   --no-restart    leave the audio services and the KDE app running as they are
-#   --no-extension  leave out the popup, on GNOME and KDE alike
+#   --no-restart    leave the audio services and the tray app running as they are
+#   --no-extension  leave out the popup, on every desktop
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -46,23 +46,25 @@ if [ "$extension" = 1 ]; then
     tested=$(sed -n '/shell-version/,/]/p' extension/metadata.json | grep -o '[0-9]\+')
     current=${XDG_CURRENT_DESKTOP:-}
     case ${current,,} in
-        *kde*) desktop=kde ;;
+        # One app for all of these: a popup on a layer of its own and an icon in the tray
+        *kde*|*sway*|*hyprland*|*niri*|*cosmic*) desktop=app ;;
         *gnome*|'')
             if command -v gnome-extensions >/dev/null && grep -qx "${shell%%.*}" <<<"$tested"; then
                 desktop=gnome
             fi ;;
     esac
     if [ "$desktop" = none ]; then
-        echo "The MicSnitch popup needs GNOME $(paste -sd/ <<<"$tested") or KDE Plasma." >&2
+        echo "The MicSnitch popup needs GNOME $(paste -sd/ <<<"$tested"), KDE Plasma, Sway," >&2
+        echo "Hyprland, niri or COSMIC." >&2
         echo "Without it every app would be refused the microphone. If that's what" >&2
         echo "you want, run this again with --no-extension." >&2
         exit 1
     fi
     # Calling into gtk4-layer-shell proves the library is there, not just its description
-    if [ "$desktop" = kde ] && ! { command -v glib-compile-schemas && command -v gjs &&
+    if [ "$desktop" = app ] && ! { command -v glib-compile-schemas && command -v gjs &&
         gjs -c "imports.gi.versions.Gtk = '4.0'; imports.gi.Adw;
                 const version = imports.gi.Gtk4LayerShell.get_major_version();"; } >/dev/null 2>&1; then
-        echo "MicSnitch on KDE needs GJS, libadwaita and gtk4-layer-shell:" >&2
+        echo "Outside GNOME MicSnitch needs GJS, libadwaita and gtk4-layer-shell:" >&2
         echo "  Fedora: sudo dnf install gjs libadwaita gtk4-layer-shell" >&2
         echo "  Debian, Ubuntu: sudo apt install gjs gir1.2-adw-1 gir1.2-gtk4layershell-1.0 \\" >&2
         echo "      libgtk4-layer-shell0 libglib2.0-bin" >&2
@@ -83,7 +85,7 @@ if [ "$desktop" = gnome ]; then
     gnome-extensions install --force "$out/$uuid.shell-extension.zip"
     glib-compile-schemas "$data/gnome-shell/extensions/$uuid/schemas"
 fi
-if [ "$desktop" = kde ]; then
+if [ "$desktop" = app ]; then
     home=$data/micsnitch
     rm -rf "${home:?}"
     install -Dm644 -t "$home" app/*.js app/style.css
@@ -104,10 +106,12 @@ for conf in pipewire.conf.d pipewire-pulse.conf.d; do
     install -Dm644 "pipewire/$conf/50-micsnitch.conf" "$cfg/pipewire/$conf/50-micsnitch.conf"
 done
 
+waiting=0
 if [ "$desktop" = gnome ]; then
     # GNOME only learns about a new extension at the next login, so until then it can't enable it.
     # Put it on the list for that login instead.
     if ! gnome-extensions enable "$uuid" 2>/dev/null; then
+        waiting=1
         enabled=$(gsettings get org.gnome.shell enabled-extensions)
         case $enabled in
             *"'$uuid'"*) ;;
@@ -119,21 +123,33 @@ if [ "$desktop" = gnome ]; then
         echo "Extensions are switched off in GNOME; turn them on in the Extensions app." >&2
     fi
 fi
-started=0
+started=0 byhand=0
 if [ "$restart" = 1 ]; then
     systemctl --user restart pipewire pipewire-pulse wireplumber
-    # KDE gets the popup right away, no need to log out
-    if [ "$desktop" = kde ] && systemctl --user -q is-active graphical-session.target; then
+    # The tray app is there right away, no need to log out
+    if [ "$desktop" = app ] && systemctl --user -q is-active graphical-session.target; then
         systemctl --user daemon-reload
         systemctl --user restart micsnitch.service
         started=1
+    elif [ "$desktop" = app ] && [ -n "${WAYLAND_DISPLAY:-}" ]; then
+        byhand=1
     fi
 fi
 
 case $desktop in
-    gnome) echo "Done. Log out and back in once to start the popup." ;;
-    kde)
+    gnome)
+        echo "Done. Log out and back in once to start MicSnitch."
+        # The gate is up already, with nobody there yet to say yes
+        if [ "$restart" = 1 ] && [ "$waiting" = 1 ]; then
+            echo "No app can record until you do."
+        fi ;;
+    app)
         if [ "$started" = 1 ]; then echo "Done. MicSnitch is in the system tray."
+        elif [ "$byhand" = 1 ]; then
+            # Sway or Hyprland started by hand: systemd never hears of the session
+            echo "Done. Nothing here starts MicSnitch at login, so have your compositor run"
+            echo "  $home/micsnitch --gapplication-service"
+            echo "No app can record until it runs."
         else echo "Done. MicSnitch starts with your next login."; fi ;;
     none) echo "No popup installed: requests time out and are denied after 15 seconds." ;;
 esac
