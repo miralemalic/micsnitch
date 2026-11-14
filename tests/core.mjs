@@ -91,6 +91,12 @@ assert(!starts('/usr/share/codium/codium --unity-launch %F', ['/usr/bin/arecord'
     !starts('konsole', ['/usr/bin/python3.14', 'listen.py']),
     'A launcher must not lend its name to what runs in its terminal');
 
+// Past starting up and into its sleep, or just ended and not yet collected
+function state(pid) {
+    const [, stat] = GLib.file_get_contents(`/proc/${pid}/stat`);
+    return new TextDecoder().decode(stat).split(') ')[1][0];
+}
+
 // A program of our own to point at. Two copies, so one can pass for the other.
 const sleep = Gio.File.new_for_path(GLib.find_program_in_path('sleep'));
 for (const copy of ['real', 'mask']) {
@@ -98,6 +104,7 @@ for (const copy of ['real', 'mask']) {
     sleep.copy(Gio.File.new_for_path(`${directory}/${copy}/sleep`), Gio.FileCopyFlags.NONE, null, null);
 }
 const running = Gio.Subprocess.new([`${directory}/real/sleep`, '60'], Gio.SubprocessFlags.NONE);
+await until(() => state(running.get_identifier()) === 'S', 'the program to start');
 const direct = await identify({sec_pid: running.get_identifier(), app: 'Recorder'});
 assert(direct.verified && direct.key === `exe:${directory}/real/sleep` && direct.program === 'sleep',
     'An app that connects by itself is known by its program');
@@ -111,10 +118,18 @@ running.force_exit();
 // A script is its interpreter as far as the kernel knows. Without a launcher
 // of its own there's nothing narrow enough to remember it by.
 const script = Gio.Subprocess.new(['sh', '-c', 'sleep 60; :'], Gio.SubprocessFlags.NONE);
+await until(() => state(script.get_identifier()) === 'S', 'the script to start');
 const scripted = await identify({sec_pid: script.get_identifier(), app: 'Script'});
 assert(scripted.verified && !scripted.key && scripted.detail.endsWith('-c sleep 60; :'),
     `A script run by hand must not be remembered, as ${scripted.key} would be`);
 script.force_exit();
+
+// A program that ended a moment ago still has a place in /proc, and nothing to show there
+const [, ended] = GLib.spawn_async(null, ['true'], null,
+    GLib.SpawnFlags.SEARCH_PATH | GLib.SpawnFlags.DO_NOT_REAP_CHILD, null);
+await until(() => state(ended) === 'Z', 'the program to end');
+const gone = await identify({sec_pid: ended, app: 'Gone', binary: 'gone'});
+assert(!gone.verified && gone.name === 'Gone', 'An app that has just ended is still named, by its own word');
 
 sleep.copy(Gio.File.new_for_path(`${directory}/real/sleep`), Gio.FileCopyFlags.NONE, null, null);
 const disguised = Gio.Subprocess.new(['unshare', '-Urm', 'sh', '-c',
@@ -133,6 +148,7 @@ for (let i = 0; i < 100 && !masked; i++) {
     }
 }
 if (masked) {
+    await until(() => state(disguised.get_identifier()) === 'S', 'the borrowed program to start');
     const liar = await identify({sec_pid: disguised.get_identifier(), app: 'Recorder', binary: 'sleep'});
     assert(!liar.verified && !liar.key.startsWith('exe:'),
         `A program sitting at a borrowed path must not be vouched for, as ${liar.key} was`);

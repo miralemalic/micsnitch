@@ -50,15 +50,18 @@ async function same(a, b, cancellable) {
 
 // The program a process runs, if the path it gives can be believed
 async function exeOf(pid, cancellable) {
-    let exe;
+    let exe = null;
     try {
         const info = await Gio.File.new_for_path(`/proc/${pid}/exe`).query_info_async(
             'standard::symlink-target', Gio.FileQueryInfoFlags.NOFOLLOW_SYMLINKS,
             GLib.PRIORITY_DEFAULT, cancellable);
         exe = info.get_symlink_target();
     } catch {
-        return null;
+        // No such process
     }
+    // One that has just ended is still listed, with nothing behind the link
+    if (!exe)
+        return null;
     // An update swapped the file while the program runs. The path was true when
     // it started, as long as the program sees the same disk we do.
     if (exe.endsWith(GONE)) {
