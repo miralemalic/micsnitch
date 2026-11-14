@@ -14,6 +14,10 @@ gjs -m tests/core.mjs
 
 export XDG_CURRENT_DESKTOP=$desktop
 tools/install.sh --no-restart >/dev/null
+# KWin 6.8 draws nothing on a screen no one can see, and GTK flips a switch
+# only once its animation has been drawn to the end. So no animations here.
+mkdir -p "$HOME/.config/gtk-4.0"
+printf '[Settings]\ngtk-enable-animations=0\n' >"$HOME/.config/gtk-4.0/settings.ini"
 home=$HOME/.local/share/micsnitch
 settings=$HOME/.config/micsnitch/settings.ini
 
