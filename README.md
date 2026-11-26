@@ -11,7 +11,7 @@ Every attempt to record, whether your microphone or whatever your speakers are
 playing, is stopped at the door and brought to you. You decide. 
 
 <p align="center">
-  <img src="docs/demo.webp" width="560" alt="MicSnitch: an app starts recording, a popup asks, Deny, and the mic goes quiet">
+  <img src="docs/demo.gif" width="560" alt="MicSnitch: an app starts recording, a popup asks, Deny, and the mic goes quiet">
 </p>
 
 ## Works on
